@@ -68,6 +68,7 @@ int main(int argc, char *argv[])
   std::cout << "Exported to " << mapfileprefix + std::to_string(seed) + ".dat" << std::endl;
 
   // ----------- power spectrum ----------
+  std::vector<std::vector<std::vector<std::complex<double>>>> gkp = fftw(gx);
   int powerlistlength = std::round(sqrt(3)*(NL-1)) + 1;
   std::vector<std::vector<double>> powerdata(powerlistlength, std::vector<double>{});
   double sigma1sq = 0;
@@ -81,10 +82,10 @@ int main(int argc, char *argv[])
     int nzt = shiftedindex(k);
     double ntnorm = sqrt(nxt*nxt+nyt*nyt+nzt*nzt);
 
-    powerdata[std::round(ntnorm)].push_back(std::norm(gk[i][j][k]));
-    sigma1sq += (i*i+j*j+k*k)*std::norm(gk[i][j][k]);
-    sigma2sq += (i*i+j*j+k*k)*(i*i+j*j+k*k)*std::norm(gk[i][j][k]);
-    sigma4sq += (i*i+j*j+k*k)*(i*i+j*j+k*k)*(i*i+j*j+k*k)*(i*i+j*j+k*k)*std::norm(gk[i][j][k]);
+    powerdata[std::round(ntnorm)].push_back(std::norm(gkp[i][j][k]));
+    sigma1sq += pow(ntnorm,2)*std::norm(gkp[i][j][k]) / pow(NL, 6);
+    sigma2sq += pow(ntnorm,4)*std::norm(gkp[i][j][k]) / pow(NL, 6);
+    sigma4sq += pow(ntnorm,8)*std::norm(gkp[i][j][k]) / pow(NL, 6);
   }
   std::cout << "sigma1sq = " << sigma1sq << std::endl;
   std::cout << "sigma2sq = " << sigma2sq << std::endl;
@@ -114,9 +115,15 @@ int main(int argc, char *argv[])
   std::vector<std::vector<std::vector<std::complex<double>>>> DDgk = gkbias;
   LOOP
   {
-    Dgk[i][j][k] *= i*i+j*j+k*k+0.;
-    DDgk[i][j][k] *= (i*i+j*j+k*k+0.)*(i*i+j*j+k*k);
+    int nxt = shiftedindex(i);
+    int nyt = shiftedindex(j);
+    int nzt = shiftedindex(k);
+    double ntnorm = sqrt(nxt*nxt+nyt*nyt+nzt*nzt);
+
+    Dgk[i][j][k] *= pow(ntnorm,2);
+    DDgk[i][j][k] *= pow(ntnorm,4);
   }
+  std::vector<std::vector<std::vector<std::complex<double>>>> gxbias = fftw(gkbias);
   std::vector<std::vector<std::vector<std::complex<double>>>> Dgx = fftw(Dgk);
   std::vector<std::vector<std::vector<std::complex<double>>>> DDgx = fftw(DDgk);
 
@@ -124,7 +131,15 @@ int main(int argc, char *argv[])
   LOOP
   {
     Dgx1d[i*NL*NL+j*NL+k] = Dgx[i][j][k].real();
+
+    biasedfile << gxbias[i][j][k].real() << ' ';
+    laplacianfile << Dgx[i][j][k].real() << ' ';
   }
+  biasedfile << std::endl;
+  laplacianfile << std::endl;
+  std::cout << "Exported to " << biasedfileprefix + std::to_string(seed) + ".dat" << std::endl;
+  std::cout << "Exported to " << laplacianfileprefix + std::to_string(seed) + ".dat" << std::endl;
+
   auto iter = std::max_element(Dgx1d.begin(), Dgx1d.end());
   size_t index = std::distance(Dgx1d.begin(), iter);
   std::cout << "Maximal value is " << *iter << " at " << index << std::endl;
@@ -133,7 +148,7 @@ int main(int argc, char *argv[])
   int jmax = (index - imax * NL * NL) / NL;
   int kmax = index - imax * NL * NL - jmax * NL;
   double mu2 = Dgx[imax][jmax][kmax].real() * sigma1sq/sigma2sq;
-  double k3 = DDgx[imax][jmax][kmax].real() * sqrt(sqrt(sigma2sq/sigma4sq));
+  double k3 = sqrt(DDgx[imax][jmax][kmax].real() / Dgx[imax][jmax][kmax].real() * sqrt(sigma2sq/sigma4sq));
   std::cout << "mu2 is " << mu2 << " at (" << imax << ", " << jmax << ", " << kmax << ")" << std::endl;
   std::cout << "k3 is " << k3 << std::endl;
 
