@@ -1,4 +1,4 @@
-for ((i=100;i<200;i++))
+for ((i=0;i<100;i++))
 do
     ./Gaussian_mono $i
 done

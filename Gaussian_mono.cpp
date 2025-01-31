@@ -53,6 +53,11 @@ int main(int argc, char *argv[])
   // ----------- unbiased map -----------
   std::vector<std::vector<std::vector<std::complex<double>>>> gk = dwk(nsigma, 0., seed);
   std::vector<std::vector<std::vector<std::complex<double>>>> gx = fftw(gk);
+  double sigma1sq = pow(nsigma,2);
+  double sigma2sq = pow(nsigma,4);
+  double sigma4sq = pow(nsigma,8);
+
+  /*
   double sigma1sq = 0;
   double sigma2sq = 0;
   double sigma4sq = 0;
@@ -68,6 +73,7 @@ int main(int argc, char *argv[])
     sigma2sq += pow(ntnorm,4)*std::norm(gk[i][j][k]) / pow(NL, 6);
     sigma4sq += pow(ntnorm,8)*std::norm(gk[i][j][k]) / pow(NL, 6);
   }
+  */
   
   // ----------- biased map -----------
   std::vector<std::vector<std::vector<std::complex<double>>>> gkbias = dwk(nsigma, bias, seed);
