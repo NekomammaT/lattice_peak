@@ -100,7 +100,7 @@ int main(int argc, char *argv[])
       {
         calPg[i] += powerdata[i][j];
       }
-      calPg[i] /= pow(NL, 6);
+      calPg[i] *= i / pow(NL, 6);
     }
 
     powerfile << calPg[i] << ' ';
