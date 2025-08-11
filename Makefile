@@ -1,4 +1,4 @@
-MODEL = Gaussian_mono_peak
+MODEL = Gaussian_LN_peak
 
 CXX := g++
 #CXX := FCCpx

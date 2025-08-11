@@ -53,13 +53,16 @@ int main(int argc, char *argv[])
   int seed = atoi(argv[1]);
   std::ofstream mapfile(mapfileprefix + std::to_string(seed) + ".csv");
   // std::ofstream biasedfile(biasedfileprefix + std::to_string(seed) + ".dat");
-  // std::ofstream laplacianfile(laplacianfileprefix + std::to_string(seed) + ".dat");
+  std::ofstream laplacianfile(laplacianfileprefix + std::to_string(seed) + ".csv");
   // std::ofstream powerfile(powerfileprefix + std::to_string(seed) + ".dat");
   std::ofstream peakfile(peakfileprefix + std::to_string(seed) + ".csv");
 
   // ----------- unbiased map -----------
   std::vector<std::vector<std::vector<std::complex<double>>>> gk = dwk(nsigma, 0., seed);
   std::vector<std::vector<std::vector<std::complex<double>>>> gx = fftw(gk);
+  double sigma1sq = pow(2*M_PI*nsigma/NL,2);
+  double sigma2sq = pow(2*M_PI*nsigma/NL,4);
+  double sigma4sq = pow(2*M_PI*nsigma/NL,8);
   
   LOOP
   {
@@ -70,62 +73,87 @@ int main(int argc, char *argv[])
 
   std::cout << "Exported to " << mapfileprefix + std::to_string(seed) + ".csv" << std::endl;
 
+  // ----------- laplacian -----------
+  std::vector<std::vector<std::vector<std::complex<double>>>> D2gk = gk;
+  std::vector<std::vector<std::vector<std::complex<double>>>> D2D2gk = gk;
+  LOOP
+    {
+      int nxt = shiftedindex(i);
+      int nyt = shiftedindex(j);
+      int nzt = shiftedindex(k);
+      double ntnorm = sqrt(nxt*nxt+nyt*nyt+nzt*nzt);
+      
+      D2gk[i][j][k] *= pow(2*M_PI*ntnorm/NL,2);
+      D2D2gk[i][j][k] *= pow(2*M_PI*ntnorm/NL,4);
+    }
+  std::vector<std::vector<std::vector<std::complex<double>>>> D2gx = fftw(D2gk);
+  std::vector<std::vector<std::vector<std::complex<double>>>> D2D2gx = fftw(D2D2gk);
+
+  LOOP
+  {
+    laplacianfile << D2gx[i][j][k].real() * sigma1sq/sigma2sq;
+    if (i != NL-1 || j != NL-1 || k != NL-1) laplacianfile << ','; 
+  }
+  laplacianfile << std::endl;
+
+  std::cout << "Exported to " << laplacianfileprefix + std::to_string(seed) + ".csv" << std::endl;
+
   // ----------- gradient ------------
-  std::vector<std::vector<std::vector<double>>> Dxgx(NL, std::vector<std::vector<double>>(NL, std::vector<double>(NL, 0)));
-  std::vector<std::vector<std::vector<double>>> Dygx = Dxgx;
-  std::vector<std::vector<std::vector<double>>> Dzgx = Dxgx;
+  std::vector<std::vector<std::vector<double>>> DxD2gx(NL, std::vector<std::vector<double>>(NL, std::vector<double>(NL, 0)));
+  std::vector<std::vector<std::vector<double>>> DyD2gx = DxD2gx;
+  std::vector<std::vector<std::vector<double>>> DzD2gx = DxD2gx;
   LOOP
     {
       if (i == NL-1) {
-	Dxgx[i][j][k] = gx[0][j][k].real() - gx[i][j][k].real();
+	DxD2gx[i][j][k] = D2gx[0][j][k].real() - D2gx[i][j][k].real();
       } else {
-	Dxgx[i][j][k] = gx[i+1][j][k].real() - gx[i][j][k].real();
+	DxD2gx[i][j][k] = D2gx[i+1][j][k].real() - D2gx[i][j][k].real();
       }
 
       if (j == NL-1) {
-	Dygx[i][j][k] = gx[i][0][k].real() - gx[i][j][k].real();
+	DyD2gx[i][j][k] = D2gx[i][0][k].real() - D2gx[i][j][k].real();
       } else {
-	Dygx[i][j][k] = gx[i][j+1][k].real() - gx[i][j][k].real();
+	DyD2gx[i][j][k] = D2gx[i][j+1][k].real() - D2gx[i][j][k].real();
       }
 
       if (k == NL-1) {
-	Dzgx[i][j][k] = gx[i][j][0].real() - gx[i][j][k].real();
+	DzD2gx[i][j][k] = D2gx[i][j][0].real() - D2gx[i][j][k].real();
       } else {
-	Dzgx[i][j][k] = gx[i][j][k+1].real() - gx[i][j][k].real();
+	DzD2gx[i][j][k] = D2gx[i][j][k+1].real() - D2gx[i][j][k].real();
       }
     }
 
-  std::vector<std::vector<std::vector<double>>> Dxgxrot = Dxgx;
-  std::vector<std::vector<std::vector<double>>> Dygxrot = Dygx;
-  std::vector<std::vector<std::vector<double>>> Dzgxrot = Dzgx;
+  std::vector<std::vector<std::vector<double>>> DxD2gxrot = DxD2gx;
+  std::vector<std::vector<std::vector<double>>> DyD2gxrot = DyD2gx;
+  std::vector<std::vector<std::vector<double>>> DzD2gxrot = DzD2gx;
 
   LOOP
     {
       if (i == NL-1) {
-	Dxgxrot[i][j][k] = Dxgx[0][j][k];
+	DxD2gxrot[i][j][k] = DxD2gx[0][j][k];
       } else {
-	Dxgxrot[i][j][k] = Dxgx[i+1][j][k];
+	DxD2gxrot[i][j][k] = DxD2gx[i+1][j][k];
       }
 
       if (j == NL-1) {
-	Dygxrot[i][j][k] = Dygx[i][0][k];
+	DyD2gxrot[i][j][k] = DyD2gx[i][0][k];
       } else {
-	Dygxrot[i][j][k] = Dygx[i][j+1][k];
+	DyD2gxrot[i][j][k] = DyD2gx[i][j+1][k];
       }
 
       if (k == NL-1) {
-	Dzgxrot[i][j][k] = Dzgx[i][j][0];
+	DzD2gxrot[i][j][k] = DzD2gx[i][j][0];
       } else {
-	Dzgxrot[i][j][k] = Dzgx[i][j][k+1];
+	DzD2gxrot[i][j][k] = DzD2gx[i][j][k+1];
       }
     }
 
   int ip, jp, kp;
   LOOP
     {
-      if (Dxgx[i][j][k] * Dxgxrot[i][j][k] < 0 && Dxgx[i][j][k] > 0 && 
-	  Dygx[i][j][k] * Dygxrot[i][j][k] < 0 && Dygx[i][j][k] > 0 &&
-	  Dzgx[i][j][k] * Dzgxrot[i][j][k] < 0 && Dzgx[i][j][k] > 0) {
+      if (DxD2gx[i][j][k] * DxD2gxrot[i][j][k] < 0 && DxD2gx[i][j][k] > 0 && 
+	  DyD2gx[i][j][k] * DyD2gxrot[i][j][k] < 0 && DyD2gx[i][j][k] > 0 &&
+	  DzD2gx[i][j][k] * DzD2gxrot[i][j][k] < 0 && DzD2gx[i][j][k] > 0) {
 	if (i==NL-1) {
 	  ip = 0;
 	} else {
@@ -144,7 +172,11 @@ int main(int argc, char *argv[])
 	  kp = k+1;
 	}
 
-	peakfile << ip << ',' << jp << ',' << kp << std::endl;
+	peakfile << ip << ',' << jp << ',' << kp << ','
+		 << D2gx[ip][jp][kp].real() * sigma1sq/sigma2sq << ','
+		 << sqrt(D2gx[ip][jp][kp].real()/gx[ip][jp][kp].real()
+			 * sqrt(sigma2sq/sigma4sq))
+		 << std::endl;
       }
     }
   

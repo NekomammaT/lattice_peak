@@ -23,11 +23,11 @@ std::normal_distribution<> dist(0., 1.);
 const std::complex<double> II(0, 1);
 
 // parameters
-const int NL = pow(2, 8); // Box size NL
+const int NL = pow(2, 7); // Box size NL
 const int nsigma = pow(2, 4);
 const double dn = 1; // Thickness of nsigma sphere shell
 const double bias = 10;
-const std::string mukfilename = "data/mono_muk.dat";
+const std::string mukfilename = "data/mono_muk_128.csv";
 
 int main(int argc, char *argv[])
 {
@@ -53,9 +53,9 @@ int main(int argc, char *argv[])
   // ----------- unbiased map -----------
   std::vector<std::vector<std::vector<std::complex<double>>>> gk = dwk(nsigma, 0., seed);
   std::vector<std::vector<std::vector<std::complex<double>>>> gx = fftw(gk);
-  double sigma1sq = pow(nsigma,2);
-  double sigma2sq = pow(nsigma,4);
-  double sigma4sq = pow(nsigma,8);
+  double sigma1sq = pow(2*M_PI*nsigma/NL,2);
+  double sigma2sq = pow(2*M_PI*nsigma/NL,4);
+  double sigma4sq = pow(2*M_PI*nsigma/NL,8);
 
   /*
   double sigma1sq = 0;
@@ -86,8 +86,8 @@ int main(int argc, char *argv[])
     int nzt = shiftedindex(k);
     double ntnorm = sqrt(nxt*nxt+nyt*nyt+nzt*nzt);
 
-    Dgk[i][j][k] *= pow(ntnorm,2);
-    DDgk[i][j][k] *= pow(ntnorm,4);
+    Dgk[i][j][k] *= pow(2*M_PI*ntnorm/NL,2);
+    DDgk[i][j][k] *= pow(2*M_PI*ntnorm/NL,4);
   }
   std::vector<std::vector<std::vector<std::complex<double>>>> Dgx = fftw(Dgk);
   std::vector<std::vector<std::vector<std::complex<double>>>> DDgx = fftw(DDgk);
@@ -107,7 +107,7 @@ int main(int argc, char *argv[])
   double k3 = sqrt(DDgx[imax][jmax][kmax].real() / Dgx[imax][jmax][kmax].real() * sqrt(sigma2sq/sigma4sq));
   double lnw = -bias*gx[0][0][0].real() - 0.5*bias*bias;
 
-  mukfile << seed << ' ' << mu2 << ' ' << k3 << ' ' << lnw << std::endl;
+  mukfile << seed << ',' << mu2 << ',' << k3 << ',' << lnw << std::endl;
 
   // ---------- stop timer ----------
   gettimeofday(&Nv, &Nz);
@@ -117,6 +117,9 @@ int main(int argc, char *argv[])
 
   return 0;
 }
+
+
+// -----------------------------------------------
 
 std::vector<std::vector<std::vector<std::complex<double>>>> dwk(int wavenumber, double bias, int seed)
 {
