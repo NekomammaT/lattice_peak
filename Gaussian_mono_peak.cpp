@@ -23,15 +23,15 @@ std::normal_distribution<> dist(0., 1.);
 const std::complex<double> II(0, 1);
 
 // parameters
-const int NL = pow(2, 8); // Box size NL
-const int nsigma = pow(2, 4);
+const int NL = 256; // Box size NL
+const int nsigma = 16;
 const double dn = 1; // Thickness of nsigma sphere shell
-const double bias = 10;
-const std::string mapfileprefix = "data/mono_map_";
+const double bias = 0;
+const std::string mapfileprefix = std::string("data/mono_map_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_");
 // const std::string biasedfileprefix = "data/mono_biased_";
-const std::string laplacianfileprefix = "data/mono_laplacian_";
+const std::string laplacianfileprefix = std::string("data/mono_laplacian_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_");
 // const std::string powerfileprefix = "data/mono_power_";
-const std::string peakfileprefix = "data/mono_peak_";
+const std::string peakfileprefix = std::string("data/mono_peak_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_");
 
 int main(int argc, char *argv[])
 {
@@ -60,9 +60,9 @@ int main(int argc, char *argv[])
   // ----------- unbiased map -----------
   std::vector<std::vector<std::vector<std::complex<double>>>> gk = dwk(nsigma, 0., seed);
   std::vector<std::vector<std::vector<std::complex<double>>>> gx = fftw(gk);
-  double sigma1sq = pow(2*M_PI*nsigma/NL,2);
-  double sigma2sq = pow(2*M_PI*nsigma/NL,4);
-  double sigma4sq = pow(2*M_PI*nsigma/NL,8);
+  //double sigma1sq = pow(2*M_PI*nsigma/NL,2);
+  //double sigma2sq = pow(2*M_PI*nsigma/NL,4);
+  //double sigma4sq = pow(2*M_PI*nsigma/NL,8);
   
   LOOP
   {
@@ -91,7 +91,7 @@ int main(int argc, char *argv[])
 
   LOOP
   {
-    laplacianfile << D2gx[i][j][k].real() * sigma1sq/sigma2sq;
+    laplacianfile << D2gx[i][j][k].real(); // * sigma1sq/sigma2sq;
     if (i != NL-1 || j != NL-1 || k != NL-1) laplacianfile << ','; 
   }
   laplacianfile << std::endl;
@@ -173,9 +173,9 @@ int main(int argc, char *argv[])
 	}
 
 	peakfile << ip << ',' << jp << ',' << kp << ','
-		 << D2gx[ip][jp][kp].real() * sigma1sq/sigma2sq << ','
-		 << sqrt(D2gx[ip][jp][kp].real()/gx[ip][jp][kp].real()
-			 * sqrt(sigma2sq/sigma4sq))
+		 << D2gx[ip][jp][kp].real() << ',' // * sigma1sq/sigma2sq << ','
+		 << sqrt(D2D2gx[ip][jp][kp].real()/D2gx[ip][jp][kp].real())
+			 // * sqrt(sigma2sq/sigma4sq))
 		 << std::endl;
       }
     }

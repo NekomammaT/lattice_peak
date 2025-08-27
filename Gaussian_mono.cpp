@@ -23,11 +23,11 @@ std::normal_distribution<> dist(0., 1.);
 const std::complex<double> II(0, 1);
 
 // parameters
-const int NL = pow(2, 7); // Box size NL
-const int nsigma = pow(2, 4);
+const int NL = 256; // Box size NL
+const int nsigma = 16;
 const double dn = 1; // Thickness of nsigma sphere shell
 const double bias = 10;
-const std::string mukfilename = "data/mono_muk_128.csv";
+const std::string mukfilename = std::string("data/mono_muk_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string(".csv");
 
 int main(int argc, char *argv[])
 {
@@ -53,9 +53,9 @@ int main(int argc, char *argv[])
   // ----------- unbiased map -----------
   std::vector<std::vector<std::vector<std::complex<double>>>> gk = dwk(nsigma, 0., seed);
   std::vector<std::vector<std::vector<std::complex<double>>>> gx = fftw(gk);
-  double sigma1sq = pow(2*M_PI*nsigma/NL,2);
-  double sigma2sq = pow(2*M_PI*nsigma/NL,4);
-  double sigma4sq = pow(2*M_PI*nsigma/NL,8);
+  //double sigma1sq = pow(2*M_PI*nsigma/NL,2);
+  //double sigma2sq = pow(2*M_PI*nsigma/NL,4);
+  //double sigma4sq = pow(2*M_PI*nsigma/NL,8);
 
   /*
   double sigma1sq = 0;
@@ -103,8 +103,8 @@ int main(int argc, char *argv[])
   int imax = index / (NL * NL);
   int jmax = (index - imax * NL * NL) / NL;
   int kmax = index - imax * NL * NL - jmax * NL;
-  double mu2 = Dgx[imax][jmax][kmax].real() * sigma1sq/sigma2sq;
-  double k3 = sqrt(DDgx[imax][jmax][kmax].real() / Dgx[imax][jmax][kmax].real() * sqrt(sigma2sq/sigma4sq));
+  double mu2 = Dgx[imax][jmax][kmax].real(); // * sigma1sq/sigma2sq;
+  double k3 = sqrt(DDgx[imax][jmax][kmax].real() / Dgx[imax][jmax][kmax].real()); // * sqrt(sigma2sq/sigma4sq));
   double lnw = -bias*gx[0][0][0].real() - 0.5*bias*bias;
 
   mukfile << seed << ',' << mu2 << ',' << k3 << ',' << lnw << std::endl;
