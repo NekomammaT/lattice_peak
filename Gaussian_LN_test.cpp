@@ -25,20 +25,20 @@ std::normal_distribution<> dist(0., 1.);
 const std::complex<double> II(0, 1);
 
 // parameters
-const int NL = pow(2, 8); // Box size NL
-const int nsigma = pow(2, 4);
-const double s2 = 2;
+const int NL = 256; // Box size NL
+const int nsigma = 16;
+const double s2 = 0.1;
 const double dn = 1; // Thickness of nsigma sphere shell
-const double bias = 10;
-const std::string mapfileprefix = "data/LN_map_";
-const std::string biasedfileprefix = "data/LN_biased_";
-const std::string laplacianfileprefix = "data/LN_laplacian_";
-const std::string powerfileprefix = "data/LN_power_";
+const double bias = 0.48;
+const std::string mapfileprefix = "data/LN0,1_map_";
+const std::string biasedfileprefix = "data/LN0,1_biased_";
+const std::string laplacianfileprefix = "data/LN0,1_laplacian_";
+const std::string powerfileprefix = "data/LN0,1_power_";
 
 // power spectrum
 double powerspectrum(int wavenumber)
 {
-  return exp(-pow(log(wavenumber/nsigma),2)/2/s2) / sqrt(2*M_PI*s2);
+  return exp(-pow(log(wavenumber)-log(nsigma),2)/2/s2) / sqrt(2*M_PI*s2);
 }
 
 int main(int argc, char *argv[])
@@ -59,33 +59,57 @@ int main(int argc, char *argv[])
   // --------------------------------------
 
   int seed = atoi(argv[1]);
-  std::ofstream mapfile(mapfileprefix + std::to_string(seed) + ".dat");
-  std::ofstream biasedfile(biasedfileprefix + std::to_string(seed) + ".dat");
-  std::ofstream laplacianfile(laplacianfileprefix + std::to_string(seed) + ".dat");
-  std::ofstream powerfile(powerfileprefix + std::to_string(seed) + ".dat");
+  std::ofstream mapfile(mapfileprefix + std::to_string(seed) + ".csv");
+  std::ofstream biasedfile(biasedfileprefix + std::to_string(seed) + ".csv");
+  std::ofstream laplacianfile(laplacianfileprefix + std::to_string(seed) + ".csv");
+  std::ofstream powerfile(powerfileprefix + std::to_string(seed) + ".csv");
 
-  // ----------- unbiased map -----------
-  std::vector<std::vector<std::vector<std::complex<double>>>> gk = dwk(1, 0., seed)*powerspectrum(1)*dn;
+  // ----------- unbiased/biased map -----------
+  std::vector<std::vector<std::vector<std::complex<double>>>> gk = dwk(1, 0., seed)*sqrt(powerspectrum(1)*dn);
+  std::vector<std::vector<std::vector<std::complex<double>>>> gkbias = dwk(1, bias, seed)*sqrt(powerspectrum(1)*dn);
 
   for (int i = 2; i < sqrt(3)*NL; i++)
   {
-    gk += dwk(i, 0., seed)*(powerspectrum(i)*dn/i);
-    std::cout << "\r" << i << " / " << sqrt(3)*NL << std::flush;
+    gk += dwk(i, 0., seed)*(sqrt(powerspectrum(i)*dn/i));
+    gkbias += dwk(i, bias, seed)*(sqrt(powerspectrum(i)*dn/i));
+    std::cout << "\r" << i << " / " << std::floor(sqrt(3)*NL) << std::flush;
   }
   std::cout << std::endl;
 
-  std::vector<std::vector<std::vector<std::complex<double>>>> gx = fftw(gk);
-  
+  std::vector<std::vector<std::vector<std::complex<double>>>> D2gk = gkbias;
   LOOP
   {
-    mapfile << gx[i][j][k].real() << ' '; 
+    int nxt = shiftedindex(i);
+    int nyt = shiftedindex(j);
+    int nzt = shiftedindex(k);
+    double ntnorm = sqrt(nxt*nxt+nyt*nyt+nzt*nzt);
+
+    D2gk[i][j][k] *= pow(ntnorm,2);
+  }
+  std::vector<std::vector<std::vector<std::complex<double>>>> gx = fftw(gk);
+  std::vector<std::vector<std::vector<std::complex<double>>>> gxbias = fftw(gkbias);
+  std::vector<std::vector<std::vector<std::complex<double>>>> D2gx = fftw(D2gk);
+
+  LOOP
+  {
+    mapfile << gx[i][j][k].real(); 
+    biasedfile << gxbias[i][j][k].real();
+    laplacianfile << D2gx[i][j][k].real();
+
+    if (i != NL-1 || j != NL-1 || k != NL-1) {
+      mapfile << ','; 
+      biasedfile << ',';
+      laplacianfile << ',';
+    }
   }
   mapfile << std::endl;
+  biasedfile << std::endl;
+  laplacianfile << std::endl;
 
-  std::cout << "Exported to " << mapfileprefix + std::to_string(seed) + ".dat" << std::endl;
+  std::cout << "Exported to " << mapfileprefix + std::to_string(seed) + ".csv" << std::endl;
 
   // ----------- power spectrum ----------
-  std::vector<std::vector<std::vector<std::complex<double>>>> gkp = fftw(gx);
+  std::vector<std::vector<std::vector<std::complex<double>>>> gkp = fftw(gx)/NL/NL/NL;
   int powerlistlength = std::round(sqrt(3)*(NL-1)) + 1;
   std::vector<std::vector<double>> powerdata(powerlistlength, std::vector<double>{});
   double sigma1sq = 0;
@@ -100,9 +124,9 @@ int main(int argc, char *argv[])
     double ntnorm = sqrt(nxt*nxt+nyt*nyt+nzt*nzt);
 
     powerdata[std::round(ntnorm)].push_back(std::norm(gkp[i][j][k]));
-    sigma1sq += pow(ntnorm,2)*std::norm(gkp[i][j][k]) / pow(NL, 6);
-    sigma2sq += pow(ntnorm,4)*std::norm(gkp[i][j][k]) / pow(NL, 6);
-    sigma4sq += pow(ntnorm,8)*std::norm(gkp[i][j][k]) / pow(NL, 6);
+    sigma1sq += pow(ntnorm,2)*std::norm(gkp[i][j][k]) * pow(2*M_PI/NL, 2);
+    sigma2sq += pow(ntnorm,4)*std::norm(gkp[i][j][k]) * pow(2*M_PI/NL, 4);
+    sigma4sq += pow(ntnorm,8)*std::norm(gkp[i][j][k]) * pow(2*M_PI/NL, 8);
   }
   std::cout << "sigma1sq = " << sigma1sq << std::endl;
   std::cout << "sigma2sq = " << sigma2sq << std::endl;
@@ -117,14 +141,15 @@ int main(int argc, char *argv[])
       {
         calPg[i] += powerdata[i][j];
       }
-      calPg[i] *= i / pow(NL, 6);
+      calPg[i] *= i; // / pow(NL, 6);
     }
 
-    powerfile << calPg[i] << ' ';
+    powerfile << calPg[i];
+    if (i != calPg.size()-1) powerfile << ',';
   }
   powerfile << std::endl;
 
-  std::cout << "Exported to " << powerfileprefix + std::to_string(seed) + ".dat" << std::endl;
+  std::cout << "Exported to " << powerfileprefix + std::to_string(seed) + ".csv" << std::endl;
   
   /*
   // ----------- biased map -----------
