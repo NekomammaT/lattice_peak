@@ -1,4 +1,4 @@
-for ((i=1;i<100;i++))
+for ((i=1;i<10;i++))
 do
-    ./Gaussian_LN $i
+    ./Gaussian_LN_monoB $i
 done

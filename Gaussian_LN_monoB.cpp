@@ -30,7 +30,7 @@ const int nsigma = 16;
 const int nbias = 16;
 const double s2 = 0.1;
 const double dn = 1; // Thickness of nsigma sphere shell
-const double bias = 0.48;
+const double bias = 10; //0.48;
 const std::string mukfilename = std::string("data/LN_muk_0,1_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_") + std::to_string(nbias) + std::string(".csv");
 
 // power spectrum
@@ -63,18 +63,22 @@ int main(int argc, char *argv[])
 
   // ----------- unbiased/biased map -----------
   // std::vector<std::vector<std::vector<std::complex<double>>>> Wk = dwk(1, 0., seed)*sqrt(dn);
-  std::vector<std::vector<std::vector<std::complex<double>>>> gkbias = dwk(1, bias, seed)*sqrt(powerspectrum(1)*dn);
+  std::vector<std::vector<std::vector<std::complex<double>>>> gkbias = dwk(1, 0., seed)*sqrt(powerspectrum(1)*dn);
 
   
   for (int i = 2; i < sqrt(3)*NL; i++)
   {
     // Wk += dwk(i, 0., seed)*sqrt(dn);
-    gkbias += dwk(i, bias, seed)*(sqrt(powerspectrum(i)*dn/i));
+    if (i == nbias)
+      gkbias += dwk(i, bias, seed)*(sqrt(powerspectrum(i)*dn/i));
+    else {
+      gkbias += dwk(i, 0., seed)*(sqrt(powerspectrum(i)*dn/i));
+    }
     std::cout << "\r" << i << " / " << std::floor(sqrt(3)*NL) << std::flush;
   }
   std::cout << std::endl;
   
-  std::vector<std::vector<std::vector<std::complex<double>>>> Wx = fftw(Wk);
+  // std::vector<std::vector<std::vector<std::complex<double>>>> Wx = fftw(Wk);
   
   std::vector<std::vector<std::vector<std::complex<double>>>> Dgk = gkbias;
   std::vector<std::vector<std::vector<std::complex<double>>>> DDgk = gkbias;
@@ -104,7 +108,10 @@ int main(int argc, char *argv[])
   int kmax = index - imax * NL * NL - jmax * NL;
   double mu2 = Dgx[imax][jmax][kmax].real(); // * sigma1sq/sigma2sq;
   double k3 = sqrt(DDgx[imax][jmax][kmax].real() / Dgx[imax][jmax][kmax].real()); // * sqrt(sigma2sq/sigma4sq));
-  double lnw = -bias*Wx[0][0][0].real() - 0.5*bias*bias*(std::floor(sqrt(3)*NL)-1)/dn;
+
+  std::vector<std::vector<std::vector<std::complex<double>>>> Wk = dwk(nbias, 0., seed);
+  std::vector<std::vector<std::vector<std::complex<double>>>> Wx = fftw(Wk);
+  double lnw = -bias*Wx[0][0][0].real() - 0.5*bias*bias;
 
   mukfile << seed << ',' << mu2 << ',' << k3 << ',' << lnw << std::endl;
 

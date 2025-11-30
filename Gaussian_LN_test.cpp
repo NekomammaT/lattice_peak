@@ -27,13 +27,14 @@ const std::complex<double> II(0, 1);
 // parameters
 const int NL = 256; // Box size NL
 const int nsigma = 16;
+const int nbias = 16;
 const double s2 = 0.1;
 const double dn = 1; // Thickness of nsigma sphere shell
-const double bias = 0.48;
-const std::string mapfileprefix = "data/LN0,1_map_";
-const std::string biasedfileprefix = "data/LN0,1_biased_";
-const std::string laplacianfileprefix = "data/LN0,1_laplacian_";
-const std::string powerfileprefix = "data/LN0,1_power_";
+const double bias = 10; //0.48;
+const std::string mapfileprefix = std::string("data/LN_map_0,1_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_") + std::to_string(nbias) + std::string(".csv");
+const std::string biasedfileprefix = std::string("data/LN_biased_0,1_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_") + std::to_string(nbias) + std::string(".csv");
+const std::string laplacianfileprefix = std::string("data/LN_laplacian_0,1_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_") + std::to_string(nbias) + std::string(".csv");
+const std::string powerfileprefix = std::string("data/LN_power_0,1_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_") + std::to_string(nbias) + std::string(".csv");
 
 // power spectrum
 double powerspectrum(int wavenumber)
@@ -59,19 +60,27 @@ int main(int argc, char *argv[])
   // --------------------------------------
 
   int seed = atoi(argv[1]);
-  std::ofstream mapfile(mapfileprefix + std::to_string(seed) + ".csv");
-  std::ofstream biasedfile(biasedfileprefix + std::to_string(seed) + ".csv");
-  std::ofstream laplacianfile(laplacianfileprefix + std::to_string(seed) + ".csv");
-  std::ofstream powerfile(powerfileprefix + std::to_string(seed) + ".csv");
+  std::ofstream mapfile(mapfileprefix);
+  std::ofstream biasedfile(biasedfileprefix);
+  std::ofstream laplacianfile(laplacianfileprefix);
+  std::ofstream powerfile(powerfileprefix);
 
   // ----------- unbiased/biased map -----------
   std::vector<std::vector<std::vector<std::complex<double>>>> gk = dwk(1, 0., seed)*sqrt(powerspectrum(1)*dn);
-  std::vector<std::vector<std::vector<std::complex<double>>>> gkbias = dwk(1, bias, seed)*sqrt(powerspectrum(1)*dn);
+  //std::vector<std::vector<std::vector<std::complex<double>>>> gkbias = dwk(1, bias, seed)*sqrt(powerspectrum(1)*dn);
+  std::vector<std::vector<std::vector<std::complex<double>>>> gkbias = dwk(1, 0., seed)*sqrt(powerspectrum(1)*dn);
 
   for (int i = 2; i < sqrt(3)*NL; i++)
   {
     gk += dwk(i, 0., seed)*(sqrt(powerspectrum(i)*dn/i));
-    gkbias += dwk(i, bias, seed)*(sqrt(powerspectrum(i)*dn/i));
+    //gkbias += dwk(i, bias, seed)*(sqrt(powerspectrum(i)*dn/i));
+
+    if (i == nbias)
+      gkbias += dwk(i, bias, seed)*(sqrt(powerspectrum(i)*dn/i));
+    else {
+      gkbias += dwk(i, 0., seed)*(sqrt(powerspectrum(i)*dn/i));
+    }
+
     std::cout << "\r" << i << " / " << std::floor(sqrt(3)*NL) << std::flush;
   }
   std::cout << std::endl;
