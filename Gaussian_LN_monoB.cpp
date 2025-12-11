@@ -30,7 +30,7 @@ const int nsigma = 16;
 const int nbias = 16;
 const double s2 = 0.1;
 const double dn = 1; // Thickness of nsigma sphere shell
-const double bias = 10; //0.48;
+const double bias = 10*sqrt(dn); //0.48;
 const std::string mukfilename = std::string("data/LN_muk_0,1_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_") + std::to_string(nbias) + std::string(".csv");
 
 // power spectrum
@@ -109,11 +109,12 @@ int main(int argc, char *argv[])
   double mu2 = Dgx[imax][jmax][kmax].real(); // * sigma1sq/sigma2sq;
   double k3 = sqrt(DDgx[imax][jmax][kmax].real() / Dgx[imax][jmax][kmax].real()); // * sqrt(sigma2sq/sigma4sq));
 
-  std::vector<std::vector<std::vector<std::complex<double>>>> Wk = dwk(nbias, 0., seed);
+  std::vector<std::vector<std::vector<std::complex<double>>>> Wk = dwk(nbias, 0., seed)*sqrt(dn);
   std::vector<std::vector<std::vector<std::complex<double>>>> Wx = fftw(Wk);
   double lnw = -bias*Wx[0][0][0].real() - 0.5*bias*bias;
 
-  mukfile << seed << ',' << mu2 << ',' << k3 << ',' << lnw << std::endl;
+  //mukfile << seed << ',' << mu2 << ',' << k3 << ',' << lnw << std::endl;
+  std::cout << mu2 << ',' << imax << ',' << jmax << ',' << kmax << ',' << Wx[0][0][0].real() << ',' << lnw << std::endl;
 
   // ---------- stop timer ----------
   gettimeofday(&Nv, &Nz);

@@ -5,7 +5,7 @@
 #include "fft.hpp"
 #include "vec_op.hpp"
 
-std::vector<std::vector<std::vector<std::complex<double>>>> dwk(int wavenumber, double bias, int seed);
+std::vector<std::vector<std::vector<std::complex<double>>>> dwk(int wavenumber, double B, int seed);
 double powerspectrum(double wavenumber);
 int shiftedindex(int n); // shifted index
 bool innsigma(int nx, int ny, int nz, double wavenumber); // judge if point is in nsigma sphere shell
@@ -30,11 +30,11 @@ const int nsigma = 16;
 const int nbias = 16;
 const double s2 = 0.1;
 const double dn = 1; // Thickness of nsigma sphere shell
-const double bias = 10; //0.48;
-const std::string mapfileprefix = std::string("data/LN_map_0,1_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_") + std::to_string(nbias) + std::string(".csv");
-const std::string biasedfileprefix = std::string("data/LN_biased_0,1_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_") + std::to_string(nbias) + std::string(".csv");
-const std::string laplacianfileprefix = std::string("data/LN_laplacian_0,1_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_") + std::to_string(nbias) + std::string(".csv");
-const std::string powerfileprefix = std::string("data/LN_power_0,1_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_") + std::to_string(nbias) + std::string(".csv");
+const double bias = 10*sqrt(dn); //0.48;
+const std::string mapfileprefix = std::string("data/LN_map_0,1_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_") + std::to_string(nbias) + std::string("_");
+const std::string biasedfileprefix = std::string("data/LN_biased_0,1_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_") + std::to_string(nbias) + std::string("_");
+const std::string laplacianfileprefix = std::string("data/LN_laplacian_0,1_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_") + std::to_string(nbias) + std::string("_");
+const std::string powerfileprefix = std::string("data/LN_power_0,1_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_") + std::to_string(nbias) + std::string("_");
 
 // power spectrum
 double powerspectrum(int wavenumber)
@@ -59,11 +59,11 @@ int main(int argc, char *argv[])
   before = (double)Nv.tv_sec + (double)Nv.tv_usec * 1.e-6;
   // --------------------------------------
 
-  int seed = atoi(argv[1]);
-  std::ofstream mapfile(mapfileprefix);
-  std::ofstream biasedfile(biasedfileprefix);
-  std::ofstream laplacianfile(laplacianfileprefix);
-  std::ofstream powerfile(powerfileprefix);
+  uint32_t seed = atoi(argv[1]);
+  std::ofstream mapfile(mapfileprefix + std::to_string(seed) + ".csv");
+  std::ofstream biasedfile(biasedfileprefix + std::to_string(seed) + ".csv");
+  std::ofstream laplacianfile(laplacianfileprefix + std::to_string(seed) + ".csv");
+  std::ofstream powerfile(powerfileprefix + std::to_string(seed) + ".csv");
 
   // ----------- unbiased/biased map -----------
   std::vector<std::vector<std::vector<std::complex<double>>>> gk = dwk(1, 0., seed)*sqrt(powerspectrum(1)*dn);
@@ -215,7 +215,7 @@ int main(int argc, char *argv[])
   return 0;
 }
 
-std::vector<std::vector<std::vector<std::complex<double>>>> dwk(int wavenumber, double bias, int seed)
+std::vector<std::vector<std::vector<std::complex<double>>>> dwk(int wavenumber, double B, int seed)
 {
   std::vector<std::vector<std::vector<std::complex<double>>>> dwk(NL, std::vector<std::vector<std::complex<double>>>(NL, std::vector<std::complex<double>>(NL, 0)));
 
@@ -285,7 +285,7 @@ std::vector<std::vector<std::vector<std::complex<double>>>> dwk(int wavenumber, 
     LOOP{
       if (innsigma(i,j,k,wavenumber)) {
         dwk[i][j][k] /= sqrt(count);
-        dwk[i][j][k] += bias/count;
+        dwk[i][j][k] += B/count;
       }
     }
   }
