@@ -28,13 +28,14 @@ const std::complex<double> II(0, 1);
 const int NL = 256; // Box size NL
 const int nsigma = 16;
 const int nbias = 16;
-const double s2 = 0.1;
+const double s2 = 1;
+const std::string s2value = std::to_string((int)s2); // "0,01";
 const double dn = 1; // Thickness of nsigma sphere shell
 const double bias = 10*sqrt(dn); //0.48;
-const std::string mapfileprefix = std::string("data/LN_map_0,1_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_") + std::to_string(nbias) + std::string("_");
-const std::string biasedfileprefix = std::string("data/LN_biased_0,1_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_") + std::to_string(nbias) + std::string("_");
-const std::string laplacianfileprefix = std::string("data/LN_laplacian_0,1_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_") + std::to_string(nbias) + std::string("_");
-const std::string powerfileprefix = std::string("data/LN_power_0,1_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_") + std::to_string(nbias) + std::string("_");
+const std::string mapfileprefix = std::string("data/LN_map_") + s2value + std::string("_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_") + std::to_string(nbias) + std::string("_");
+const std::string biasedfileprefix = std::string("data/LN_biased_") + s2value + std::string("_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_") + std::to_string(nbias) + std::string("_");
+const std::string laplacianfileprefix = std::string("data/LN_laplacian_") + s2value + std::string("_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_") + std::to_string(nbias) + std::string("_");
+const std::string powerfileprefix = std::string("data/LN_power_") + s2value + std::string("_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_") + std::to_string(nbias) + std::string("_");
 
 // power spectrum
 double powerspectrum(int wavenumber)

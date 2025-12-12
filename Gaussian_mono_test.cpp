@@ -50,10 +50,10 @@ int main(int argc, char *argv[])
   // --------------------------------------
 
   int seed = atoi(argv[1]);
-  std::ofstream mapfile(mapfileprefix + std::to_string(seed) + ".dat");
-  std::ofstream biasedfile(biasedfileprefix + std::to_string(seed) + ".dat");
-  std::ofstream laplacianfile(laplacianfileprefix + std::to_string(seed) + ".dat");
-  std::ofstream powerfile(powerfileprefix + std::to_string(seed) + ".dat");
+  std::ofstream mapfile(mapfileprefix + std::to_string(seed) + ".csv");
+  std::ofstream biasedfile(biasedfileprefix + std::to_string(seed) + ".csv");
+  std::ofstream laplacianfile(laplacianfileprefix + std::to_string(seed) + ".csv");
+  std::ofstream powerfile(powerfileprefix + std::to_string(seed) + ".csv");
 
   // ----------- unbiased map -----------
   std::vector<std::vector<std::vector<std::complex<double>>>> gk = dwk(nsigma, 0., seed);
@@ -62,10 +62,14 @@ int main(int argc, char *argv[])
   LOOP
   {
     mapfile << gx[i][j][k].real() << ' '; 
+
+    if (i != NL-1 || j != NL-1 || k != NL-1) {
+      mapfile << ','; 
+    }
   }
   mapfile << std::endl;
 
-  std::cout << "Exported to " << mapfileprefix + std::to_string(seed) + ".dat" << std::endl;
+  std::cout << "Exported to " << mapfileprefix + std::to_string(seed) + ".csv" << std::endl;
 
   // ----------- power spectrum ----------
   std::vector<std::vector<std::vector<std::complex<double>>>> gkp = fftw(gx);
@@ -104,10 +108,11 @@ int main(int argc, char *argv[])
     }
 
     powerfile << calPg[i] << ' ';
+    if (i != calPg.size()-1) powerfile << ',';
   }
   powerfile << std::endl;
 
-  std::cout << "Exported to " << powerfileprefix + std::to_string(seed) + ".dat" << std::endl;
+  std::cout << "Exported to " << powerfileprefix + std::to_string(seed) + ".csv" << std::endl;
   
   // ----------- biased map -----------
   std::vector<std::vector<std::vector<std::complex<double>>>> gkbias = dwk(nsigma, bias, seed);
@@ -134,11 +139,15 @@ int main(int argc, char *argv[])
 
     biasedfile << gxbias[i][j][k].real() << ' ';
     laplacianfile << Dgx[i][j][k].real() << ' ';
+    if (i != NL-1 || j != NL-1 || k != NL-1) {
+      biasedfile << ',';
+      laplacianfile << ',';
+    }
   }
   biasedfile << std::endl;
   laplacianfile << std::endl;
-  std::cout << "Exported to " << biasedfileprefix + std::to_string(seed) + ".dat" << std::endl;
-  std::cout << "Exported to " << laplacianfileprefix + std::to_string(seed) + ".dat" << std::endl;
+  std::cout << "Exported to " << biasedfileprefix + std::to_string(seed) + ".csv" << std::endl;
+  std::cout << "Exported to " << laplacianfileprefix + std::to_string(seed) + ".csv" << std::endl;
 
   auto iter = std::max_element(Dgx1d.begin(), Dgx1d.end());
   size_t index = std::distance(Dgx1d.begin(), iter);
