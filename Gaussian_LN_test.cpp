@@ -5,7 +5,9 @@
 #include "fft.hpp"
 #include "vec_op.hpp"
 
-std::vector<std::vector<std::vector<std::complex<double>>>> dwk(int wavenumber, double B, int seed);
+//std::vector<std::vector<std::vector<std::complex<double>>>> dwk(int wavenumber, double B, std::mt19937& engine);
+std::vector<std::vector<std::vector<std::complex<double>>>> dwk(int wavenumber, std::mt19937& engine);
+std::vector<std::vector<std::vector<std::complex<double>>>> Bk(int wavenumber, double bias);
 double powerspectrum(double wavenumber);
 int shiftedindex(int n); // shifted index
 bool innsigma(int nx, int ny, int nz, double wavenumber); // judge if point is in nsigma sphere shell
@@ -28,10 +30,11 @@ const std::complex<double> II(0, 1);
 const int NL = 256; // Box size NL
 const int nsigma = 16;
 const int nbias = 16;
-const double s2 = 1;
-const std::string s2value = std::to_string((int)s2); // "0,01";
+const double s2 = 0.01;
+const std::string s2value = //std::to_string((int)s2); 
+"0,01";
 const double dn = 1; // Thickness of nsigma sphere shell
-const double bias = 10*sqrt(dn); //0.48;
+const double biascoeff = 10; //0.48;
 const std::string mapfileprefix = std::string("data/LN_map_") + s2value + std::string("_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_") + std::to_string(nbias) + std::string("_");
 const std::string biasedfileprefix = std::string("data/LN_biased_") + s2value + std::string("_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_") + std::to_string(nbias) + std::string("_");
 const std::string laplacianfileprefix = std::string("data/LN_laplacian_") + s2value + std::string("_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_") + std::to_string(nbias) + std::string("_");
@@ -61,32 +64,30 @@ int main(int argc, char *argv[])
   // --------------------------------------
 
   uint32_t seed = atoi(argv[1]);
+  std::mt19937 engine(std::hash<int>{}(seed));
   std::ofstream mapfile(mapfileprefix + std::to_string(seed) + ".csv");
   std::ofstream biasedfile(biasedfileprefix + std::to_string(seed) + ".csv");
   std::ofstream laplacianfile(laplacianfileprefix + std::to_string(seed) + ".csv");
   std::ofstream powerfile(powerfileprefix + std::to_string(seed) + ".csv");
 
+  double bias = biascoeff / (sqrt(powerspectrum(nbias)/nbias)*dn);
+
   // ----------- unbiased/biased map -----------
-  std::vector<std::vector<std::vector<std::complex<double>>>> gk = dwk(1, 0., seed)*sqrt(powerspectrum(1)*dn);
-  //std::vector<std::vector<std::vector<std::complex<double>>>> gkbias = dwk(1, bias, seed)*sqrt(powerspectrum(1)*dn);
-  std::vector<std::vector<std::vector<std::complex<double>>>> gkbias = dwk(1, 0., seed)*sqrt(powerspectrum(1)*dn);
+  std::vector<std::vector<std::vector<std::complex<double>>>> gk = dwk(1, engine)*sqrt(powerspectrum(1)*dn);
+  //std::vector<std::vector<std::vector<std::complex<double>>>> gkbias = dwk(1, bias, engine)*sqrt(powerspectrum(1)*dn);
 
   for (int i = 2; i < sqrt(3)*NL; i++)
   {
-    gk += dwk(i, 0., seed)*(sqrt(powerspectrum(i)*dn/i));
-    //gkbias += dwk(i, bias, seed)*(sqrt(powerspectrum(i)*dn/i));
-
-    if (i == nbias)
-      gkbias += dwk(i, bias, seed)*(sqrt(powerspectrum(i)*dn/i));
-    else {
-      gkbias += dwk(i, 0., seed)*(sqrt(powerspectrum(i)*dn/i));
-    }
+    gk += dwk(i, engine)*(sqrt(powerspectrum(i)*dn/i));
 
     std::cout << "\r" << i << " / " << std::floor(sqrt(3)*NL) << std::flush;
   }
   std::cout << std::endl;
 
+  std::vector<std::vector<std::vector<std::complex<double>>>> gkbias = gk; 
+  gkbias += Bk(nbias, bias)*sqrt(powerspectrum(nbias)/nbias)*dn;
   std::vector<std::vector<std::vector<std::complex<double>>>> D2gk = gkbias;
+  std::vector<std::vector<std::vector<std::complex<double>>>> D2D2gk = gkbias;
   LOOP
   {
     int nxt = shiftedindex(i);
@@ -95,10 +96,12 @@ int main(int argc, char *argv[])
     double ntnorm = sqrt(nxt*nxt+nyt*nyt+nzt*nzt);
 
     D2gk[i][j][k] *= pow(ntnorm,2);
+    D2D2gk[i][j][k] *= pow(ntnorm,4);
   }
   std::vector<std::vector<std::vector<std::complex<double>>>> gx = fftw(gk);
   std::vector<std::vector<std::vector<std::complex<double>>>> gxbias = fftw(gkbias);
   std::vector<std::vector<std::vector<std::complex<double>>>> D2gx = fftw(D2gk);
+  std::vector<std::vector<std::vector<std::complex<double>>>> D2D2gx = fftw(D2D2gk);
 
   LOOP
   {
@@ -161,51 +164,26 @@ int main(int argc, char *argv[])
 
   std::cout << "Exported to " << powerfileprefix + std::to_string(seed) + ".csv" << std::endl;
   
-  /*
+
   // ----------- biased map -----------
-  std::vector<std::vector<std::vector<std::complex<double>>>> gkbias = dwk(nsigma, bias, seed);
-  std::vector<std::vector<std::vector<std::complex<double>>>> Dgk = gkbias;
-  std::vector<std::vector<std::vector<std::complex<double>>>> DDgk = gkbias;
+  std::vector<double> D2gx1d(NL*NL*NL, 0);
   LOOP
   {
-    int nxt = shiftedindex(i);
-    int nyt = shiftedindex(j);
-    int nzt = shiftedindex(k);
-    double ntnorm = sqrt(nxt*nxt+nyt*nyt+nzt*nzt);
-
-    Dgk[i][j][k] *= pow(ntnorm,2);
-    DDgk[i][j][k] *= pow(ntnorm,4);
+    D2gx1d[i*NL*NL+j*NL+k] = D2gx[i][j][k].real();
   }
-  std::vector<std::vector<std::vector<std::complex<double>>>> gxbias = fftw(gkbias);
-  std::vector<std::vector<std::vector<std::complex<double>>>> Dgx = fftw(Dgk);
-  std::vector<std::vector<std::vector<std::complex<double>>>> DDgx = fftw(DDgk);
 
-  std::vector<double> Dgx1d(NL*NL*NL, 0);
-  LOOP
-  {
-    Dgx1d[i*NL*NL+j*NL+k] = Dgx[i][j][k].real();
-
-    biasedfile << gxbias[i][j][k].real() << ' ';
-    laplacianfile << Dgx[i][j][k].real() << ' ';
-  }
-  biasedfile << std::endl;
-  laplacianfile << std::endl;
-  std::cout << "Exported to " << biasedfileprefix + std::to_string(seed) + ".dat" << std::endl;
-  std::cout << "Exported to " << laplacianfileprefix + std::to_string(seed) + ".dat" << std::endl;
-
-  auto iter = std::max_element(Dgx1d.begin(), Dgx1d.end());
-  size_t index = std::distance(Dgx1d.begin(), iter);
+  auto iter = std::max_element(D2gx1d.begin(), D2gx1d.end());
+  size_t index = std::distance(D2gx1d.begin(), iter);
   std::cout << "Maximal value is " << *iter << " at " << index << std::endl;
 
   int imax = index / (NL * NL);
   int jmax = (index - imax * NL * NL) / NL;
   int kmax = index - imax * NL * NL - jmax * NL;
-  double mu2 = Dgx[imax][jmax][kmax].real() * sigma1sq/sigma2sq;
-  double k3 = sqrt(DDgx[imax][jmax][kmax].real() / Dgx[imax][jmax][kmax].real() * sqrt(sigma2sq/sigma4sq));
+  double mu2 = D2gx[imax][jmax][kmax].real() * sigma1sq/sigma2sq;
+  double k3 = sqrt(D2D2gx[imax][jmax][kmax].real() / D2gx[imax][jmax][kmax].real() * sqrt(sigma2sq/sigma4sq));
   std::cout << "mu2 is " << mu2 << " at (" << imax << ", " << jmax << ", " << kmax << ")" << std::endl;
   std::cout << "k3 is " << k3 << std::endl;
 
-  */
 
   // ---------- stop timer ----------
   gettimeofday(&Nv, &Nz);
@@ -216,12 +194,12 @@ int main(int argc, char *argv[])
   return 0;
 }
 
-std::vector<std::vector<std::vector<std::complex<double>>>> dwk(int wavenumber, double B, int seed)
+std::vector<std::vector<std::vector<std::complex<double>>>> dwk(int wavenumber, std::mt19937& engine)
 {
   std::vector<std::vector<std::vector<std::complex<double>>>> dwk(NL, std::vector<std::vector<std::complex<double>>>(NL, std::vector<std::complex<double>>(NL, 0)));
 
   int count = 0;
-  std::mt19937 engine(std::hash<int>{}(seed));
+  //std::mt19937 engine(std::hash<int>{}(seed));
 
   LOOP
   {
@@ -286,12 +264,34 @@ std::vector<std::vector<std::vector<std::complex<double>>>> dwk(int wavenumber, 
     LOOP{
       if (innsigma(i,j,k,wavenumber)) {
         dwk[i][j][k] /= sqrt(count);
-        dwk[i][j][k] += B/count;
+        //dwk[i][j][k] += B/count;
       }
     }
   }
 
   return dwk;
+}
+
+std::vector<std::vector<std::vector<std::complex<double>>>> Bk(int wavenumber, double bias)
+{
+  std::vector<std::vector<std::vector<std::complex<double>>>> Bk(NL, std::vector<std::vector<std::complex<double>>>(NL, std::vector<std::complex<double>>(NL, 0)));
+
+  int count = 0;
+  //std::mt19937 engine(std::hash<int>{}(seed));
+
+  LOOP
+  {
+    if (innsigma(i, j, k, wavenumber)) count++;
+  }
+
+  if (count != 0)
+  {
+    LOOP{
+      if (innsigma(i,j,k,wavenumber)) Bk[i][j][k] = bias/count;
+    }
+  }
+
+  return Bk;
 }
 
 int shiftedindex(int n)
