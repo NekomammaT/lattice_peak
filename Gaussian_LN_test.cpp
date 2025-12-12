@@ -5,7 +5,6 @@
 #include "fft.hpp"
 #include "vec_op.hpp"
 
-//std::vector<std::vector<std::vector<std::complex<double>>>> dwk(int wavenumber, double B, std::mt19937& engine);
 std::vector<std::vector<std::vector<std::complex<double>>>> dwk(int wavenumber, std::mt19937& engine);
 std::vector<std::vector<std::vector<std::complex<double>>>> Bk(int wavenumber, double bias);
 double powerspectrum(double wavenumber);
@@ -70,11 +69,10 @@ int main(int argc, char *argv[])
   std::ofstream laplacianfile(laplacianfileprefix + std::to_string(seed) + ".csv");
   std::ofstream powerfile(powerfileprefix + std::to_string(seed) + ".csv");
 
-  double bias = biascoeff / (sqrt(powerspectrum(nbias)/nbias)*dn);
+  double bias = biascoeff / (sqrt(powerspectrum(nbias))*dn/nbias);
 
   // ----------- unbiased/biased map -----------
   std::vector<std::vector<std::vector<std::complex<double>>>> gk = dwk(1, engine)*sqrt(powerspectrum(1)*dn);
-  //std::vector<std::vector<std::vector<std::complex<double>>>> gkbias = dwk(1, bias, engine)*sqrt(powerspectrum(1)*dn);
 
   for (int i = 2; i < sqrt(3)*NL; i++)
   {
@@ -85,7 +83,7 @@ int main(int argc, char *argv[])
   std::cout << std::endl;
 
   std::vector<std::vector<std::vector<std::complex<double>>>> gkbias = gk; 
-  gkbias += Bk(nbias, bias)*sqrt(powerspectrum(nbias)/nbias)*dn;
+  gkbias += Bk(nbias, bias)*sqrt(powerspectrum(nbias))*dn/nbias;
   std::vector<std::vector<std::vector<std::complex<double>>>> D2gk = gkbias;
   std::vector<std::vector<std::vector<std::complex<double>>>> D2D2gk = gkbias;
   LOOP
@@ -154,7 +152,7 @@ int main(int argc, char *argv[])
       {
         calPg[i] += powerdata[i][j];
       }
-      calPg[i] *= i; // / pow(NL, 6);
+      calPg[i] *= i;
     }
 
     powerfile << calPg[i];
@@ -199,7 +197,6 @@ std::vector<std::vector<std::vector<std::complex<double>>>> dwk(int wavenumber, 
   std::vector<std::vector<std::vector<std::complex<double>>>> dwk(NL, std::vector<std::vector<std::complex<double>>>(NL, std::vector<std::complex<double>>(NL, 0)));
 
   int count = 0;
-  //std::mt19937 engine(std::hash<int>{}(seed));
 
   LOOP
   {
@@ -262,10 +259,7 @@ std::vector<std::vector<std::vector<std::complex<double>>>> dwk(int wavenumber, 
   if (count != 0)
   {
     LOOP{
-      if (innsigma(i,j,k,wavenumber)) {
-        dwk[i][j][k] /= sqrt(count);
-        //dwk[i][j][k] += B/count;
-      }
+      if (innsigma(i,j,k,wavenumber)) dwk[i][j][k] /= sqrt(count);
     }
   }
 
@@ -277,7 +271,6 @@ std::vector<std::vector<std::vector<std::complex<double>>>> Bk(int wavenumber, d
   std::vector<std::vector<std::vector<std::complex<double>>>> Bk(NL, std::vector<std::vector<std::complex<double>>>(NL, std::vector<std::complex<double>>(NL, 0)));
 
   int count = 0;
-  //std::mt19937 engine(std::hash<int>{}(seed));
 
   LOOP
   {

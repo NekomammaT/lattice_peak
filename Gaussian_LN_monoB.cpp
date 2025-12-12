@@ -5,7 +5,8 @@
 #include "fft.hpp"
 #include "vec_op.hpp"
 
-std::vector<std::vector<std::vector<std::complex<double>>>> dwk(int wavenumber, double bias, int seed);
+std::vector<std::vector<std::vector<std::complex<double>>>> dwk(int wavenumber, std::mt19937& engine);
+std::vector<std::vector<std::vector<std::complex<double>>>> Bk(int wavenumber, double bias);
 double powerspectrum(double wavenumber);
 int shiftedindex(int n); // shifted index
 bool innsigma(int nx, int ny, int nz, double wavenumber); // judge if point is in nsigma sphere shell
@@ -28,10 +29,12 @@ const std::complex<double> II(0, 1);
 const int NL = 256; // Box size NL
 const int nsigma = 16;
 const int nbias = 16;
-const double s2 = 0.1;
+const double s2 = 0.01;
+const std::string s2value = //std::to_string((int)s2); 
+"0,01";
 const double dn = 1; // Thickness of nsigma sphere shell
-const double bias = 10*sqrt(dn); //0.48;
-const std::string mukfilename = std::string("data/LN_muk_0,1_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_") + std::to_string(nbias) + std::string(".csv");
+const double biascoeff = 10; //0.48;
+const std::string mukfilename = std::string("data/LN_muk_") + s2value + std::string("_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_") + std::to_string(nbias) + std::string(".csv");
 
 // power spectrum
 double powerspectrum(int wavenumber)
@@ -59,26 +62,29 @@ int main(int argc, char *argv[])
 
   int seed = atoi(argv[1]);
   std::cout << "seed = " << seed << std::endl;
+  std::mt19937 engine(std::hash<int>{}(seed));
   std::ofstream mukfile(mukfilename, std::ios::app);
 
-  // ----------- unbiased/biased map -----------
-  // std::vector<std::vector<std::vector<std::complex<double>>>> Wk = dwk(1, 0., seed)*sqrt(dn);
-  std::vector<std::vector<std::vector<std::complex<double>>>> gkbias = dwk(1, 0., seed)*sqrt(powerspectrum(1)*dn);
+  double bias = biascoeff / sqrt(powerspectrum(nbias)*dn/nbias);
 
+  // ----------- unbiased/biased map -----------
+  std::vector<std::vector<std::vector<std::complex<double>>>> Wk(NL, std::vector<std::vector<std::complex<double>>>(NL, std::vector<std::complex<double>>(NL, 0)));
+  std::vector<std::vector<std::vector<std::complex<double>>>> gkbias = dwk(1, engine)*sqrt(powerspectrum(1)*dn);
   
   for (int i = 2; i < sqrt(3)*NL; i++)
   {
-    // Wk += dwk(i, 0., seed)*sqrt(dn);
-    if (i == nbias)
-      gkbias += dwk(i, bias, seed)*(sqrt(powerspectrum(i)*dn/i));
-    else {
-      gkbias += dwk(i, 0., seed)*(sqrt(powerspectrum(i)*dn/i));
+    std::vector<std::vector<std::vector<std::complex<double>>>> dwkt = dwk(i, engine)*(sqrt(powerspectrum(i)*dn/i));
+    gkbias += dwkt;
+
+    if (i == nbias) {
+      Wk += dwkt;
     }
+
     std::cout << "\r" << i << " / " << std::floor(sqrt(3)*NL) << std::flush;
   }
   std::cout << std::endl;
-  
-  // std::vector<std::vector<std::vector<std::complex<double>>>> Wx = fftw(Wk);
+
+  gkbias += Bk(nbias, bias)*sqrt(powerspectrum(nbias)*dn/nbias);
   
   std::vector<std::vector<std::vector<std::complex<double>>>> Dgk = gkbias;
   std::vector<std::vector<std::vector<std::complex<double>>>> DDgk = gkbias;
@@ -106,10 +112,9 @@ int main(int argc, char *argv[])
   int imax = index / (NL * NL);
   int jmax = (index - imax * NL * NL) / NL;
   int kmax = index - imax * NL * NL - jmax * NL;
-  double mu2 = Dgx[imax][jmax][kmax].real(); // * sigma1sq/sigma2sq;
-  double k3 = sqrt(DDgx[imax][jmax][kmax].real() / Dgx[imax][jmax][kmax].real()); // * sqrt(sigma2sq/sigma4sq));
+  double mu2 = Dgx[imax][jmax][kmax].real(); 
+  double k3 = sqrt(DDgx[imax][jmax][kmax].real() / Dgx[imax][jmax][kmax].real()); 
 
-  std::vector<std::vector<std::vector<std::complex<double>>>> Wk = dwk(nbias, 0., seed)*sqrt(dn);
   std::vector<std::vector<std::vector<std::complex<double>>>> Wx = fftw(Wk);
   double lnw = -bias*Wx[0][0][0].real() - 0.5*bias*bias;
 
@@ -128,12 +133,11 @@ int main(int argc, char *argv[])
 
 // -----------------------------------------------
 
-std::vector<std::vector<std::vector<std::complex<double>>>> dwk(int wavenumber, double bias, int seed)
+std::vector<std::vector<std::vector<std::complex<double>>>> dwk(int wavenumber, std::mt19937& engine)
 {
   std::vector<std::vector<std::vector<std::complex<double>>>> dwk(NL, std::vector<std::vector<std::complex<double>>>(NL, std::vector<std::complex<double>>(NL, 0)));
 
   int count = 0;
-  std::mt19937 engine(std::hash<int>{}(seed));
 
   LOOP
   {
@@ -196,14 +200,32 @@ std::vector<std::vector<std::vector<std::complex<double>>>> dwk(int wavenumber, 
   if (count != 0)
   {
     LOOP{
-      if (innsigma(i,j,k,wavenumber)) {
-        dwk[i][j][k] /= sqrt(count);
-        dwk[i][j][k] += bias/count;
-      }
+      if (innsigma(i,j,k,wavenumber)) dwk[i][j][k] /= sqrt(count);
     }
   }
 
   return dwk;
+}
+
+std::vector<std::vector<std::vector<std::complex<double>>>> Bk(int wavenumber, double bias)
+{
+  std::vector<std::vector<std::vector<std::complex<double>>>> Bk(NL, std::vector<std::vector<std::complex<double>>>(NL, std::vector<std::complex<double>>(NL, 0)));
+
+  int count = 0;
+
+  LOOP
+  {
+    if (innsigma(i, j, k, wavenumber)) count++;
+  }
+
+  if (count != 0)
+  {
+    LOOP{
+      if (innsigma(i,j,k,wavenumber)) Bk[i][j][k] = bias/count;
+    }
+  }
+
+  return Bk;
 }
 
 int shiftedindex(int n)
