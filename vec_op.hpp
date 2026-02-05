@@ -2,141 +2,85 @@
 #define INCLUDED_vec_op_hpp_
 
 #include <vector>
-#include <complex>
+#include <cassert>
 
-template <class T1, class T2>
-std::vector<T1> operator+(const std::vector<T1> &v1, const std::vector<T2> &v2) {
-  std::vector<T1> ans = v1;
-  for (size_t i = 0, size = ans.size(); i < size; ++i)
-    ans[i] += v2[i];
-  return ans;
-}
+template <typename T>
+struct is_std_vector : std::false_type {};
 
-template <class T1, class T2>
-std::vector<T1> operator-(const std::vector<T1> &v1, const std::vector<T2> &v2) {
-  std::vector<T1> ans = v1;
-  for (size_t i = 0, size = ans.size(); i < size; ++i)
-    ans[i] -= v2[i];
-  return ans;
-}
+template <typename T, typename A>
+struct is_std_vector<std::vector<T, A>> : std::true_type {};
 
-template <class T1, class T2>
-std::vector<T1>& operator+=(std::vector<T1> &v1, const std::vector<T2> &v2) {
-  for (size_t i = 0, size = v1.size(); i < size; ++i)
-    v1[i] += v2[i];
-  return v1;
-}
+template <typename T>
+inline constexpr bool is_std_vector_v = is_std_vector<T>::value;
 
-template <class T1, class T2>
-std::vector<T1>& operator-=(std::vector<T1> &v1, const std::vector<T2> &v2) {
-  for (size_t i = 0, size = v1.size(); i < size; ++i)
-    v1[i] -= v2[i];
-  return v1;
-}
 
-/*
-template <class Tv, class Tc>
-std::vector<Tv> operator*(const std::vector<Tv> &v, const Tc &c) {
-  std::vector<Tv> ans = v;
-  for (Tv &e : ans)
-    e *= c;
-  return ans;
-}
+template <typename T1, typename T2>
+void add_inplace_recursive(T1& a, const T2& b)
+{
+    if constexpr (is_std_vector_v<T1> && is_std_vector_v<T2>) {
+        static_assert(std::is_same_v<
+            typename T1::value_type,
+            typename T2::value_type>,
+            "vector value_type mismatch");
 
-template <class Tc, class Tv>
-std::vector<Tv> operator*(const Tc &c, const std::vector<Tv> &v) {
-  std::vector<Tv> ans = v;
-  for (Tv &e : ans)
-    e *= c;
-  return ans;
-}
-
-template <class Tv, class Tc>
-std::vector<Tv>& operator*=(std::vector<Tv> &v, const Tc &c) {
-  for (Tv &e : v)
-    e *= c;
-  return v;
-}
-*/
-
-std::vector<std::complex<double>>& operator*=(std::vector<std::complex<double>> &v, const double &c) {
-  for (std::complex<double> &e : v)
-    e *= c;
-  return v;
-}
-
-std::vector<std::vector<std::complex<double>>>& operator*=(std::vector<std::vector<std::complex<double>>> &v, const double &c) {
-  for (std::vector<std::complex<double>> &e : v)
-    e *= c;
-  return v;
-}
-
-std::vector<std::vector<std::vector<std::complex<double>>>>& operator*=(std::vector<std::vector<std::vector<std::complex<double>>>> &v, const double &c) {
-  for (std::vector<std::vector<std::complex<double>>> &e : v)
-    e *= c;
-  return v;
-}
-
-std::vector<std::complex<double>> operator*(const std::vector<std::complex<double>> &v, const double &c) {
-  std::vector<std::complex<double>> ans = v;
-  for (std::complex<double> &e : ans)
-    e *= c;
-  return ans;
-}
-
-std::vector<std::vector<std::complex<double>>> operator*(const std::vector<std::vector<std::complex<double>>> &v, const double &c) {
-  std::vector<std::vector<std::complex<double>>> ans = v;
-  for (std::vector<std::complex<double>> &e : ans)
-    e *= c;
-  return ans;
-}
-
-std::vector<std::vector<std::vector<std::complex<double>>>> operator*(const std::vector<std::vector<std::vector<std::complex<double>>>> &v, const double &c) {
-  std::vector<std::vector<std::vector<std::complex<double>>>> ans = v;
-  for (std::vector<std::vector<std::complex<double>>> &e : ans)
-    e *= c;
-  return ans;
-}
-
-template <class Tv, class Tc>
-std::vector<Tv> operator/(const std::vector<Tv> & v, const Tc &c) {
-  std::vector<Tv> ans = v;
-  for (Tv &e : ans)
-    e /= c;
-  return ans;
-}
-
-template <class Tv, class Tc>
-std::vector<Tv>& operator/=(std::vector<Tv> &v, const Tc &c) {
-  for (Tv &e : v)
-    e /= c;
-  return v;
-}
-
-std::vector<std::vector<std::vector<std::complex<double>>>> operator/(const std::vector<std::vector<std::vector<std::complex<double>>>> &v, const int &c) {
-  std::vector<std::vector<std::vector<std::complex<double>>>> ans = v;
-  for (std::vector<std::vector<std::complex<double>>> &e : ans)
-    e /= c;
-  return ans;
-}
-
-std::vector<std::vector<std::vector<std::complex<double>>>>& operator/=(std::vector<std::vector<std::vector<std::complex<double>>>> &v, const int &c) {
-  for (std::vector<std::vector<std::complex<double>>> &e : v)
-    e /= c;
-  return v;
-}
-
-namespace vec_op {
-  void init(double &x) {
-    x = 0;
-  }
-  
-  template <class T>
-  void init(std::vector<T> &v) {
-    for (T &e : v) {
-      init(e);
+        assert(a.size() == b.size());
+        for (size_t i = 0; i < a.size(); ++i) {
+            add_inplace_recursive(a[i], b[i]);  // 再帰！
+        }
+    } else {
+        a += b;  // スカラー
     }
-  }
 }
+
+template <typename T1, typename T2>
+std::vector<T1>& operator+=(std::vector<T1>& v1,
+                            const std::vector<T2>& v2)
+{
+    assert(v1.size() == v2.size());
+    for (size_t i = 0; i < v1.size(); ++i) {
+        add_inplace_recursive(v1[i], v2[i]);
+    }
+    return v1;
+}
+
+template <typename T1, typename T2>
+std::vector<T1> operator+(std::vector<T1>& v1,
+                            const std::vector<T2>& v2)
+{
+    auto result = v1;
+    result += v2;
+    return result;
+}
+
+
+template <typename T, typename Scalar>
+void scale_inplace_recursive(T& a, const Scalar& alpha)
+{
+    if constexpr (is_std_vector_v<T>) {
+        for (auto& ai : a) {
+            scale_inplace_recursive(ai, alpha);  // 再帰
+        }
+    } else {
+        a *= alpha;  // スカラー
+    }
+}
+
+template <typename T, typename Scalar>
+std::vector<T>& operator*=(std::vector<T>& v, const Scalar& alpha)
+{
+    for (auto& vi : v)
+        scale_inplace_recursive(vi, alpha);
+    return v;
+}
+
+template <typename T, typename Scalar>
+std::vector<T> operator*(const std::vector<T>& v, const Scalar& alpha)
+{
+    auto out = v;
+    out *= alpha;
+    return out;
+}
+
+
 
 #endif

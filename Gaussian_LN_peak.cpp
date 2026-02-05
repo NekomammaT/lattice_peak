@@ -5,7 +5,8 @@
 #include "fft.hpp"
 #include "vec_op.hpp"
 
-std::vector<std::vector<std::vector<std::complex<double>>>> dwk(int wavenumber, double bias, int seed);
+std::vector<std::vector<std::vector<std::complex<double>>>> dwk(int wavenumber, std::mt19937& engine);
+std::vector<std::vector<std::vector<std::complex<double>>>> Bk(int wavenumber, double bias);
 double powerspectrum(double wavenumber);
 int shiftedindex(int n); // shifted index
 bool innsigma(int nx, int ny, int nz, double wavenumber); // judge if point is in nsigma sphere shell
@@ -29,7 +30,7 @@ const int NL = 256; // Box size NL
 const int nsigma = 16;
 const double s2 = 0.1;
 const double dn = 1; // Thickness of nsigma sphere shell
-const double bias = 0.3;
+// const double bias = 0.3;
 const std::string mapfileprefix = std::string("data/LN") //+ std::to_string((int)s2) 
   + std::string("0,1")
   + std::string("_map_");
@@ -67,6 +68,7 @@ int main(int argc, char *argv[])
   // --------------------------------------
 
   int seed = atoi(argv[1]);
+  std::mt19937 engine(std::hash<int>{}(seed));
   std::ofstream mapfile(mapfileprefix + std::to_string(seed) + ".csv");
   // std::ofstream biasedfile(biasedfileprefix + std::to_string(seed) + ".dat");
   std::ofstream laplacianfile(laplacianfileprefix + std::to_string(seed) + ".csv");
@@ -74,19 +76,19 @@ int main(int argc, char *argv[])
   std::ofstream peakfile(peakfileprefix + std::to_string(seed) + ".csv");
 
   // ----------- unbiased map -----------
-  std::vector<std::vector<std::vector<std::complex<double>>>> gk = dwk(1, 0., seed)*sqrt(powerspectrum(1)*dn);
-  
+  std::vector<std::vector<std::vector<std::complex<double>>>> gk = dwk(1, engine)*sqrt(powerspectrum(1)*dn);
+
   for (int i = 2; i < sqrt(3)*NL; i++)
   {
-    gk += dwk(i, 0., seed)*sqrt(powerspectrum(i)*dn/i);
+    gk += dwk(i, engine)*sqrt(powerspectrum(i)*dn/i);
     std::cout << "\r" << i << " / " << std::floor(sqrt(3)*NL) << std::flush;
   }
   std::cout << std::endl;
   
   std::vector<std::vector<std::vector<std::complex<double>>>> gx = fftw(gk);
-  double sigma1sq = exp(2*s2)*pow(2*M_PI*nsigma/NL,2);
-  double sigma2sq = exp(2*2*2*s2)*pow(2*M_PI*nsigma/NL,4);
-  double sigma4sq = exp(2*4*4*s2)*pow(2*M_PI*nsigma/NL,8);
+  // double sigma1sq = exp(2*s2)*pow(2*M_PI*nsigma/NL,2);
+  // double sigma2sq = exp(2*2*2*s2)*pow(2*M_PI*nsigma/NL,4);
+  // double sigma4sq = exp(2*4*4*s2)*pow(2*M_PI*nsigma/NL,8);
   
   LOOP
   {
@@ -129,21 +131,21 @@ int main(int argc, char *argv[])
   LOOP
     {
       if (i == NL-1) {
-	DxD2gx[i][j][k] = D2gx[0][j][k].real() - D2gx[i][j][k].real();
+      	DxD2gx[i][j][k] = D2gx[0][j][k].real() - D2gx[i][j][k].real();
       } else {
-	DxD2gx[i][j][k] = D2gx[i+1][j][k].real() - D2gx[i][j][k].real();
+      	DxD2gx[i][j][k] = D2gx[i+1][j][k].real() - D2gx[i][j][k].real();
       }
 
       if (j == NL-1) {
-	DyD2gx[i][j][k] = D2gx[i][0][k].real() - D2gx[i][j][k].real();
+      	DyD2gx[i][j][k] = D2gx[i][0][k].real() - D2gx[i][j][k].real();
       } else {
-	DyD2gx[i][j][k] = D2gx[i][j+1][k].real() - D2gx[i][j][k].real();
+      	DyD2gx[i][j][k] = D2gx[i][j+1][k].real() - D2gx[i][j][k].real();
       }
 
       if (k == NL-1) {
-	DzD2gx[i][j][k] = D2gx[i][j][0].real() - D2gx[i][j][k].real();
+      	DzD2gx[i][j][k] = D2gx[i][j][0].real() - D2gx[i][j][k].real();
       } else {
-	DzD2gx[i][j][k] = D2gx[i][j][k+1].real() - D2gx[i][j][k].real();
+      	DzD2gx[i][j][k] = D2gx[i][j][k+1].real() - D2gx[i][j][k].real();
       }
     }
 
@@ -154,21 +156,21 @@ int main(int argc, char *argv[])
   LOOP
     {
       if (i == NL-1) {
-	DxD2gxrot[i][j][k] = DxD2gx[0][j][k];
+	      DxD2gxrot[i][j][k] = DxD2gx[0][j][k];
       } else {
-	DxD2gxrot[i][j][k] = DxD2gx[i+1][j][k];
+	      DxD2gxrot[i][j][k] = DxD2gx[i+1][j][k];
       }
 
       if (j == NL-1) {
-	DyD2gxrot[i][j][k] = DyD2gx[i][0][k];
+  	    DyD2gxrot[i][j][k] = DyD2gx[i][0][k];
       } else {
-	DyD2gxrot[i][j][k] = DyD2gx[i][j+1][k];
+	      DyD2gxrot[i][j][k] = DyD2gx[i][j+1][k];
       }
 
       if (k == NL-1) {
-	DzD2gxrot[i][j][k] = DzD2gx[i][j][0];
+      	DzD2gxrot[i][j][k] = DzD2gx[i][j][0];
       } else {
-	DzD2gxrot[i][j][k] = DzD2gx[i][j][k+1];
+      	DzD2gxrot[i][j][k] = DzD2gx[i][j][k+1];
       }
     }
 
@@ -176,31 +178,30 @@ int main(int argc, char *argv[])
   LOOP
     {
       if (DxD2gx[i][j][k] * DxD2gxrot[i][j][k] < 0 && DxD2gx[i][j][k] > 0 && 
-	  DyD2gx[i][j][k] * DyD2gxrot[i][j][k] < 0 && DyD2gx[i][j][k] > 0 &&
-	  DzD2gx[i][j][k] * DzD2gxrot[i][j][k] < 0 && DzD2gx[i][j][k] > 0) {
-	if (i==NL-1) {
-	  ip = 0;
-	} else {
-	  ip = i+1;
-	}
+	      DyD2gx[i][j][k] * DyD2gxrot[i][j][k] < 0 && DyD2gx[i][j][k] > 0 &&
+	      DzD2gx[i][j][k] * DzD2gxrot[i][j][k] < 0 && DzD2gx[i][j][k] > 0) {
+	      if (i==NL-1) {
+	        ip = 0;
+	      } else {
+	        ip = i+1;
+	      }
 
-	if (j==NL-1) {
-	  jp = 0;
-	} else {
-	  jp = j+1;
-	}
+	      if (j==NL-1) {
+	        jp = 0;
+	      } else {
+	        jp = j+1;
+	      }
 
-	if (k==NL-1) {
-	  kp = 0;
-	} else {
-	  kp = k+1;
-	}
+	      if (k==NL-1) {
+	        kp = 0;
+	      } else {
+	        kp = k+1;
+	      }
 
-	peakfile << ip << ',' << jp << ',' << kp << ','
-		 << D2gx[ip][jp][kp].real() << ',' // * sigma1sq/sigma2sq << ','
-		 << sqrt(D2D2gx[ip][jp][kp].real()/D2gx[ip][jp][kp].real())
-			 //* sqrt(sigma2sq/sigma4sq))
-		 << std::endl;
+	      peakfile << ip << ',' << jp << ',' << kp << ','
+		      << D2gx[ip][jp][kp].real() << ',' // * sigma1sq/sigma2sq << ','
+		      << sqrt(D2D2gx[ip][jp][kp].real()/D2gx[ip][jp][kp].real()) //* sqrt(sigma2sq/sigma4sq))
+		      << std::endl;
       }
     }
   
@@ -218,12 +219,11 @@ int main(int argc, char *argv[])
 
 // -----------------------------------------------
 
-std::vector<std::vector<std::vector<std::complex<double>>>> dwk(int wavenumber, double bias, int seed)
+std::vector<std::vector<std::vector<std::complex<double>>>> dwk(int wavenumber, std::mt19937& engine)
 {
   std::vector<std::vector<std::vector<std::complex<double>>>> dwk(NL, std::vector<std::vector<std::complex<double>>>(NL, std::vector<std::complex<double>>(NL, 0)));
 
   int count = 0;
-  std::mt19937 engine(std::hash<int>{}(seed));
 
   LOOP
   {
@@ -286,14 +286,32 @@ std::vector<std::vector<std::vector<std::complex<double>>>> dwk(int wavenumber, 
   if (count != 0)
   {
     LOOP{
-      if (innsigma(i,j,k,wavenumber)) {
-        dwk[i][j][k] /= sqrt(count);
-        dwk[i][j][k] += bias/count;
-      }
+      if (innsigma(i,j,k,wavenumber)) dwk[i][j][k] /= sqrt(count);
     }
   }
 
   return dwk;
+}
+
+std::vector<std::vector<std::vector<std::complex<double>>>> Bk(int wavenumber, double bias)
+{
+  std::vector<std::vector<std::vector<std::complex<double>>>> Bk(NL, std::vector<std::vector<std::complex<double>>>(NL, std::vector<std::complex<double>>(NL, 0)));
+
+  int count = 0;
+
+  LOOP
+  {
+    if (innsigma(i, j, k, wavenumber)) count++;
+  }
+
+  if (count != 0)
+  {
+    LOOP{
+      if (innsigma(i,j,k,wavenumber)) Bk[i][j][k] = bias/count;
+    }
+  }
+
+  return Bk;
 }
 
 int shiftedindex(int n)
