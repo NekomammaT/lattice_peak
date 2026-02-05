@@ -71,7 +71,7 @@ int main(int argc, char *argv[])
   int seed = atoi(argv[1]);
   std::cout << "seed = " << seed << std::endl;
   std::mt19937 engine(std::hash<int>{}(seed));
-  // std::ofstream mukfile(mukfilename, std::ios::app);
+  std::ofstream mukfile(mukfilename, std::ios::app);
 
   // ----------- unbiased/biased map -----------
   std::vector<std::vector<std::vector<std::complex<double>>>> gkbias(NL, std::vector<std::vector<std::complex<double>>>(NL, std::vector<std::complex<double>>(NL, 0)));
@@ -120,8 +120,8 @@ int main(int argc, char *argv[])
   double mu2 = Dgx[imax][jmax][kmax].real(); 
   double k3 = sqrt(DDgx[imax][jmax][kmax].real() / Dgx[imax][jmax][kmax].real()); 
 
-  //mukfile << seed << ',' << mu2 << ',' << k3 << ',' << lnw << std::endl;
-  std::cout << mu2 << ',' << imax << ',' << jmax << ',' << kmax << ',' << lnw << std::endl;
+  mukfile << seed << ',' << mu2 << ',' << k3 << ',' << lnw << std::endl;
+  //std::cout << mu2 << ',' << imax << ',' << jmax << ',' << kmax << ',' << lnw << std::endl;
 
   // ---------- stop timer ----------
   gettimeofday(&Nv, &Nz);
