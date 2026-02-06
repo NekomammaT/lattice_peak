@@ -1,4 +1,4 @@
-MODEL = Gaussian_LN_GB
+MODEL = Gaussian_LN_GB2
 
 CXX := g++
 #CXX := FCCpx
