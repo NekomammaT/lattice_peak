@@ -3,8 +3,11 @@
 #include <random>
 #include <sys/time.h>
 #include "fft.hpp"
+#include "vec_op.hpp"
 
-std::vector<std::vector<std::vector<std::complex<double>>>> dwk(int wavenumber, double bias, int seed);
+std::vector<std::vector<std::vector<std::complex<double>>>> dwk(int wavenumber, std::mt19937& engine);
+std::vector<std::vector<std::vector<std::complex<double>>>> Bk(int wavenumber, double bias);
+double WRTH(double z);
 int shiftedindex(int n); // shifted index
 bool innsigma(int nx, int ny, int nz, double wavenumber); // judge if point is in nsigma sphere shell
 bool realpoint(int nx, int ny, int nz);                   // judge real point
@@ -26,8 +29,24 @@ const std::complex<double> II(0, 1);
 const int NL = 256; // Box size NL
 const int nsigma = 16;
 const double dn = 1; // Thickness of nsigma sphere shell
-const double bias = 10;
+const double bias = 8; //10;
+const double As = 5e-3;
 const std::string mukfilename = std::string("data/mono_muk_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string(".csv");
+
+// real-space top-hat window
+double WRTH(double z)
+{
+  if (z == 0)
+  {
+    return 1;
+  }
+  else
+  {
+    return 3 * (sin(z) - z * cos(z)) / pow(z, 3);
+  }
+}
+
+
 
 int main(int argc, char *argv[])
 {
@@ -48,35 +67,15 @@ int main(int argc, char *argv[])
 
   int seed = atoi(argv[1]);
   std::cout << "seed = " << seed << std::endl;
+  std::mt19937 engine(std::hash<int>{}(seed));
   std::ofstream mukfile(mukfilename, std::ios::app);
 
   // ----------- unbiased map -----------
-  std::vector<std::vector<std::vector<std::complex<double>>>> gk = dwk(nsigma, 0., seed);
+  std::vector<std::vector<std::vector<std::complex<double>>>> gk = dwk(nsigma, engine);
   std::vector<std::vector<std::vector<std::complex<double>>>> gx = fftw(gk);
-  //double sigma1sq = pow(2*M_PI*nsigma/NL,2);
-  //double sigma2sq = pow(2*M_PI*nsigma/NL,4);
-  //double sigma4sq = pow(2*M_PI*nsigma/NL,8);
-
-  /*
-  double sigma1sq = 0;
-  double sigma2sq = 0;
-  double sigma4sq = 0;
-
-  LOOP
-  {
-    int nxt = shiftedindex(i);
-    int nyt = shiftedindex(j);
-    int nzt = shiftedindex(k);
-    double ntnorm = sqrt(nxt*nxt+nyt*nyt+nzt*nzt);
-
-    sigma1sq += pow(ntnorm,2)*std::norm(gk[i][j][k]) / pow(NL, 6);
-    sigma2sq += pow(ntnorm,4)*std::norm(gk[i][j][k]) / pow(NL, 6);
-    sigma4sq += pow(ntnorm,8)*std::norm(gk[i][j][k]) / pow(NL, 6);
-  }
-  */
   
   // ----------- biased map -----------
-  std::vector<std::vector<std::vector<std::complex<double>>>> gkbias = dwk(nsigma, bias, seed);
+  std::vector<std::vector<std::vector<std::complex<double>>>> gkbias = gk + Bk(nsigma, bias);
   std::vector<std::vector<std::vector<std::complex<double>>>> Dgk = gkbias;
   std::vector<std::vector<std::vector<std::complex<double>>>> DDgk = gkbias;
   LOOP
@@ -103,11 +102,53 @@ int main(int argc, char *argv[])
   int imax = index / (NL * NL);
   int jmax = (index - imax * NL * NL) / NL;
   int kmax = index - imax * NL * NL - jmax * NL;
-  double mu2 = Dgx[imax][jmax][kmax].real(); // * sigma1sq/sigma2sq;
-  double k3 = sqrt(DDgx[imax][jmax][kmax].real() / Dgx[imax][jmax][kmax].real()); // * sqrt(sigma2sq/sigma4sq));
+  double mu2 = Dgx[imax][jmax][kmax].real(); 
+  double k3 = sqrt(DDgx[imax][jmax][kmax].real() / Dgx[imax][jmax][kmax].real()); 
   double lnw = -bias*gx[0][0][0].real() - 0.5*bias*bias;
 
-  mukfile << seed << ',' << mu2 << ',' << k3 << ',' << lnw << std::endl;
+  double Cmax = 0;
+  int rsmax;
+  double sigma1 = 2*M_PI*nsigma/NL;
+  double sigma2 = pow(2*M_PI*nsigma/NL,2);
+  for (int rs = 1; rs <= NL/2; rs++) {
+    std::vector<std::vector<std::vector<std::complex<double>>>> rzpk = gkbias;
+    LOOP
+    {
+      int nxt = shiftedindex(i);
+      int nyt = shiftedindex(j);
+      int nzt = shiftedindex(k);
+      double ntnorm = sqrt(nxt*nxt+nyt*nyt+nzt*nzt);
+      double kr = 2*M_PI*ntnorm*rs/NL;
+
+      rzpk[i][j][k] *= -kr*kr/3*WRTH(kr)*sqrt(As);
+    }
+    std::vector<std::vector<std::vector<std::complex<double>>>> rzpx = fftw(rzpk);
+    double compaction = 2./3*(1-pow(1+rzpx[imax][jmax][kmax].real(),2));
+    if (compaction > Cmax) {
+      Cmax = compaction;
+      rsmax = rs;
+    }
+  }
+  int count = 0;
+  double zetam = 0;
+  LOOP
+  {
+    int nxt = shiftedindex(i);
+    int nyt = shiftedindex(j);
+    int nzt = shiftedindex(k);
+    int nxm = shiftedindex(imax);
+    int nym = shiftedindex(jmax);
+    int nzm = shiftedindex(kmax);
+    double dr = sqrt((nxt-nxm)*(nxt-nxm)+(nyt-nym)*(nyt-nym)+(nzt-nzm)*(nzt-nzm));
+    if (fabs(dr-rsmax) < 1./2) {
+      zetam += gx[i][j][k].real() * sqrt(As);
+      count++;
+    }
+  }
+  zetam /= count;
+
+  mukfile << seed << ',' << mu2 << ',' << k3 << ',' << k3*rsmax << ',' << zetam << ',' << Cmax << ',' << lnw << std::endl;
+  std::cout << seed << ',' << mu2 << ',' << k3 << ',' << k3*rsmax << ',' << zetam << ',' << Cmax << ',' << lnw << std::endl;
 
   // ---------- stop timer ----------
   gettimeofday(&Nv, &Nz);
@@ -121,12 +162,11 @@ int main(int argc, char *argv[])
 
 // -----------------------------------------------
 
-std::vector<std::vector<std::vector<std::complex<double>>>> dwk(int wavenumber, double bias, int seed)
+std::vector<std::vector<std::vector<std::complex<double>>>> dwk(int wavenumber, std::mt19937& engine)
 {
   std::vector<std::vector<std::vector<std::complex<double>>>> dwk(NL, std::vector<std::vector<std::complex<double>>>(NL, std::vector<std::complex<double>>(NL, 0)));
 
   int count = 0;
-  std::mt19937 engine(std::hash<int>{}(seed));
 
   LOOP
   {
@@ -189,14 +229,32 @@ std::vector<std::vector<std::vector<std::complex<double>>>> dwk(int wavenumber, 
   if (count != 0)
   {
     LOOP{
-      if (innsigma(i,j,k,wavenumber)) {
-        dwk[i][j][k] /= sqrt(count);
-        dwk[i][j][k] += bias/count;
-      }
+      if (innsigma(i,j,k,wavenumber)) dwk[i][j][k] /= sqrt(count);
     }
   }
 
   return dwk;
+}
+
+std::vector<std::vector<std::vector<std::complex<double>>>> Bk(int wavenumber, double bias)
+{
+  std::vector<std::vector<std::vector<std::complex<double>>>> Bk(NL, std::vector<std::vector<std::complex<double>>>(NL, std::vector<std::complex<double>>(NL, 0)));
+
+  int count = 0;
+
+  LOOP
+  {
+    if (innsigma(i, j, k, wavenumber)) count++;
+  }
+
+  if (count != 0)
+  {
+    LOOP{
+      if (innsigma(i,j,k,wavenumber)) Bk[i][j][k] = bias/count;
+    }
+  }
+
+  return Bk;
 }
 
 int shiftedindex(int n)
