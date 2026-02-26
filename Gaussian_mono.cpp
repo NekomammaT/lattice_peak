@@ -88,6 +88,7 @@ int main(int argc, char *argv[])
     Dgk[i][j][k] *= pow(2*M_PI*ntnorm/NL,2);
     DDgk[i][j][k] *= pow(2*M_PI*ntnorm/NL,4);
   }
+  std::vector<std::vector<std::vector<std::complex<double>>>> gxbias = fftw(gkbias);
   std::vector<std::vector<std::vector<std::complex<double>>>> Dgx = fftw(Dgk);
   std::vector<std::vector<std::vector<std::complex<double>>>> DDgx = fftw(DDgk);
 
@@ -141,7 +142,7 @@ int main(int argc, char *argv[])
     int nzm = shiftedindex(kmax);
     double dr = sqrt((nxt-nxm)*(nxt-nxm)+(nyt-nym)*(nyt-nym)+(nzt-nzm)*(nzt-nzm));
     if (fabs(dr-rsmax) < 1./2) {
-      zetam += gx[i][j][k].real() * sqrt(As);
+      zetam += gxbias[i][j][k].real() * sqrt(As);
       count++;
     }
   }

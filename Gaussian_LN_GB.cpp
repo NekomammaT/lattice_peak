@@ -7,6 +7,7 @@
 
 std::vector<std::vector<std::vector<std::complex<double>>>> dwk(int wavenumber, std::mt19937& engine);
 std::vector<std::vector<std::vector<std::complex<double>>>> Bk(int wavenumber, double bias);
+double WRTH(double z);
 double powerspectrum(double wavenumber);
 double BN(int nbias, double dlnn, double biascoeff);
 int shiftedindex(int n); // shifted index
@@ -29,6 +30,7 @@ const std::complex<double> II(0, 1);
 // parameters
 const int NL = 256; // Box size NL
 const int nsigma = 16;
+const double As = 5e-3;
 const int nbias = 16;
 const double dlnn = 1;
 const double biascoeff = 18; //0.48;
@@ -48,6 +50,19 @@ double powerspectrum(int wavenumber)
 double BN(int wavenumber, double dlnn, double biascoeff)
 {
   return biascoeff * exp(-pow(log(wavenumber)-log(nbias),2)/2/dlnn) / sqrt(2*M_PI*dlnn);
+}
+
+// real-space top-hat window
+double WRTH(double z)
+{
+  if (z == 0)
+  {
+    return 1;
+  }
+  else
+  {
+    return 3 * (sin(z) - z * cos(z)) / pow(z, 3);
+  }
 }
 
 
@@ -71,7 +86,7 @@ int main(int argc, char *argv[])
   int seed = atoi(argv[1]);
   std::cout << "seed = " << seed << std::endl;
   std::mt19937 engine(std::hash<int>{}(seed));
-  std::ofstream mukfile(mukfilename, std::ios::app);
+  // std::ofstream mukfile(mukfilename, std::ios::app);
 
   // ----------- unbiased/biased map -----------
   std::vector<std::vector<std::vector<std::complex<double>>>> gkbias(NL, std::vector<std::vector<std::complex<double>>>(NL, std::vector<std::complex<double>>(NL, 0)));
@@ -120,8 +135,49 @@ int main(int argc, char *argv[])
   double mu2 = Dgx[imax][jmax][kmax].real(); 
   double k3 = sqrt(DDgx[imax][jmax][kmax].real() / Dgx[imax][jmax][kmax].real()); 
 
-  mukfile << seed << ',' << mu2 << ',' << k3 << ',' << lnw << std::endl;
-  //std::cout << mu2 << ',' << imax << ',' << jmax << ',' << kmax << ',' << lnw << std::endl;
+  double Cmax = 0;
+  int rsmax;
+  double sigma1 = 2*M_PI*nsigma/NL;
+  double sigma2 = pow(2*M_PI*nsigma/NL,2);
+  for (int rs = 1; rs <= NL/2; rs++) {
+    std::vector<std::vector<std::vector<std::complex<double>>>> rzpk = gkbias;
+    LOOP
+    {
+      int nxt = shiftedindex(i);
+      int nyt = shiftedindex(j);
+      int nzt = shiftedindex(k);
+      double ntnorm = sqrt(nxt*nxt+nyt*nyt+nzt*nzt);
+      double kr = 2*M_PI*ntnorm*rs/NL;
+
+      rzpk[i][j][k] *= -kr*kr/3*WRTH(kr)*sqrt(As);
+    }
+    std::vector<std::vector<std::vector<std::complex<double>>>> rzpx = fftw(rzpk);
+    double compaction = 2./3*(1-pow(1+rzpx[imax][jmax][kmax].real(),2));
+    if (compaction > Cmax) {
+      Cmax = compaction;
+      rsmax = rs;
+    }
+  }
+  int count = 0;
+  double zetam = 0;
+  LOOP
+  {
+    int nxt = shiftedindex(i);
+    int nyt = shiftedindex(j);
+    int nzt = shiftedindex(k);
+    int nxm = shiftedindex(imax);
+    int nym = shiftedindex(jmax);
+    int nzm = shiftedindex(kmax);
+    double dr = sqrt((nxt-nxm)*(nxt-nxm)+(nyt-nym)*(nyt-nym)+(nzt-nzm)*(nzt-nzm));
+    if (fabs(dr-rsmax) < 1./2) {
+      zetam += gx[i][j][k].real() * sqrt(As);
+      count++;
+    }
+  }
+  zetam /= count;
+
+  // mukfile << seed << ',' << mu2 << ',' << k3 << ',' << k3*rsmax << ',' << zetam << ',' << Cmax << ',' << lnw << std::endl;
+  std::cout << seed << ',' << mu2 << ',' << k3 << ',' << k3*rsmax << ',' << zetam << ',' << Cmax << ',' << lnw << std::endl;
 
   // ---------- stop timer ----------
   gettimeofday(&Nv, &Nz);
