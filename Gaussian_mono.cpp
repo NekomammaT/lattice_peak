@@ -31,7 +31,7 @@ const int nsigma = 16;
 const double dn = 1; // Thickness of nsigma sphere shell
 const double bias = 8; //10;
 const double As = 5e-3;
-const std::string mukfilename = std::string("data/mono_muk_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string(".csv");
+const std::string mukfilename = std::string("data/mono_muk_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_2.csv");
 
 // real-space top-hat window
 double WRTH(double z)
