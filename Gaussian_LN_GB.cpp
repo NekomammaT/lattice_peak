@@ -86,7 +86,7 @@ int main(int argc, char *argv[])
   int seed = atoi(argv[1]);
   std::cout << "seed = " << seed << std::endl;
   std::mt19937 engine(std::hash<int>{}(seed));
-  // std::ofstream mukfile(mukfilename, std::ios::app);
+  std::ofstream mukfile(mukfilename, std::ios::app);
 
   // ----------- unbiased/biased map -----------
   std::vector<std::vector<std::vector<std::complex<double>>>> gkbias(NL, std::vector<std::vector<std::complex<double>>>(NL, std::vector<std::complex<double>>(NL, 0)));
@@ -177,8 +177,8 @@ int main(int argc, char *argv[])
   }
   zetam /= count;
 
-  // mukfile << seed << ',' << mu2 << ',' << k3 << ',' << k3*rsmax << ',' << zetam << ',' << Cmax << ',' << lnw << std::endl;
-  std::cout << seed << ',' << mu2 << ',' << k3 << ',' << k3*rsmax << ',' << zetam << ',' << Cmax << ',' << lnw << std::endl;
+  mukfile << seed << ',' << mu2 << ',' << k3 << ',' << k3*rsmax << ',' << zetam << ',' << Cmax << ',' << lnw << std::endl;
+  //std::cout << seed << ',' << mu2 << ',' << k3 << ',' << k3*rsmax << ',' << zetam << ',' << Cmax << ',' << lnw << std::endl;
 
   // ---------- stop timer ----------
   gettimeofday(&Nv, &Nz);
