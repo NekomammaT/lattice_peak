@@ -82,5 +82,34 @@ std::vector<T> operator*(const std::vector<T>& v, const Scalar& alpha)
 }
 
 
+template <typename T, typename Scalar>
+void div_inplace_recursive(T& a, const Scalar& alpha)
+{
+    if constexpr (is_std_vector_v<T>) {
+        for (auto& ai : a) {
+            div_inplace_recursive(ai, alpha);  // 再帰
+        }
+    } else {
+        a /= alpha;  // スカラー
+    }
+}
+
+template <typename T, typename Scalar>
+std::vector<T>& operator/=(std::vector<T>& v, const Scalar& alpha)
+{
+    for (auto& vi : v)
+        div_inplace_recursive(vi, alpha);
+    return v;
+}
+
+template <typename T, typename Scalar>
+std::vector<T> operator/(const std::vector<T>& v, const Scalar& alpha)
+{
+    auto out = v;
+    out /= alpha;
+    return out;
+}
+
+
 
 #endif

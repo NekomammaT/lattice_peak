@@ -32,11 +32,10 @@ const int NL = 256; // Box size NL
 const int nsigma = 16;
 const double As = 5e-3;
 const int nbias = 16;
-const double dlnn = 1;
-const double biascoeff = 18; //0.48;
-const double s2 = 0.1;
-const std::string s2value = //std::to_string((int)s2); 
-"0,1";
+const double dlnn = 0.1; //1;
+const double biascoeff = 10; //18; //0.48;
+const double s2 = 0.01; //0.1;
+const std::string s2value = "0,01"; //"0,1"; //std::to_string((int)s2); 
 const double dn = 1; // Thickness of nsigma sphere shell
 const std::string mukfilename = std::string("data/LN_muk_") + s2value + std::string("_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_") + std::to_string(nbias) + std::string("_GB.csv");
 
@@ -177,7 +176,7 @@ int main(int argc, char *argv[])
   }
   zetam /= count;
 
-  mukfile << seed << ',' << mu2 << ',' << k3 << ',' << k3*rsmax << ',' << zetam << ',' << Cmax << ',' << lnw << std::endl;
+  mukfile << seed << ',' << mu2 << ',' << k3 << ',' << 2*M_PI*nsigma/NL*rsmax << ',' << zetam << ',' << Cmax << ',' << lnw << std::endl;
   //std::cout << seed << ',' << mu2 << ',' << k3 << ',' << k3*rsmax << ',' << zetam << ',' << Cmax << ',' << lnw << std::endl;
 
   // ---------- stop timer ----------
