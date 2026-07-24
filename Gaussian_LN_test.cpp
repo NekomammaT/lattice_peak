@@ -34,8 +34,8 @@ const double As = 5e-3;
 const int nbias = 16;
 const double dlnn = 0.1; //0.01; //1;
 const double biascoeff = 10; //8; //18; //0.48;
-const double s2 = 0.01; 
-const std::string s2value = "0,01"; //std::to_string((int)s2); 
+const double s2 = 0.1; //0.01; 
+const std::string s2value = "0,1"; //"0,01"; //std::to_string((int)s2); 
 const double dn = 1; // Thickness of nsigma sphere shell
 const std::string mapfileprefix = std::string("data/LN_map_") + s2value + std::string("_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_");
 const std::string biasedfileprefix = std::string("data/LN_biased_") + s2value + std::string("_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_") + std::to_string(nbias) + std::string("_");
@@ -89,13 +89,12 @@ int main(int argc, char *argv[])
   uint32_t seed = atoi(argv[1]);
   std::cout << "seed = " << seed << std::endl;
   std::mt19937 engine(std::hash<int>{}(seed));
-  std::ofstream mapfile(mapfileprefix + std::to_string(seed) + ".csv");
-  std::ofstream biasedfile(biasedfileprefix + std::to_string(seed) + ".csv");
-  std::ofstream laplacianfile(laplacianfileprefix + std::to_string(seed) + ".csv");
-  std::ofstream powerfile(powerfileprefix + std::to_string(seed) + ".csv");
-  std::ofstream compactionfile(Cfileprefix + std::to_string(seed) + ".csv");
 
+
+  /*
   // ----------- unbiased map -----------
+  std::ofstream mapfile(mapfileprefix + std::to_string(seed) + ".csv");
+
   std::vector<std::vector<std::vector<std::complex<double>>>> gk = dwk(1, engine)*sqrt(powerspectrum(1)*dn);
 
   for (int i = 2; i < sqrt(3)*NL; i++)
@@ -121,6 +120,8 @@ int main(int argc, char *argv[])
   std::cout << "Exported to " << mapfileprefix + std::to_string(seed) + ".csv" << std::endl;
 
   // ----------- power spectrum ----------
+  std::ofstream powerfile(powerfileprefix + std::to_string(seed) + ".csv");
+
   std::vector<std::vector<std::vector<std::complex<double>>>> gkp = fftw(gx)/NL/NL/NL;
   int powerlistlength = std::round(sqrt(3)*(NL-1)) + 1;
   std::vector<std::vector<double>> powerdata(powerlistlength, std::vector<double>{});
@@ -153,9 +154,15 @@ int main(int argc, char *argv[])
   powerfile << std::endl;
 
   std::cout << "Exported to " << powerfileprefix + std::to_string(seed) + ".csv" << std::endl;
+
+  */
   
   
   // ----------- biased map -----------
+  std::ofstream biasedfile(biasedfileprefix + std::to_string(seed) + ".csv");
+  std::ofstream laplacianfile(laplacianfileprefix + std::to_string(seed) + ".csv");
+  std::ofstream compactionfile(Cfileprefix + std::to_string(seed) + ".csv");
+
   std::vector<std::vector<std::vector<std::complex<double>>>> gkbias(NL, std::vector<std::vector<std::complex<double>>>(NL, std::vector<std::complex<double>>(NL, 0)));
 
   for (int i = 1; i < sqrt(3)*NL; i++)
@@ -214,10 +221,10 @@ int main(int argc, char *argv[])
   int imax = index / (NL * NL);
   int jmax = (index - imax * NL * NL) / NL;
   int kmax = index - imax * NL * NL - jmax * NL;
-  double mu2 = Dgx[imax][jmax][kmax].real(); 
-  double k3 = sqrt(DDgx[imax][jmax][kmax].real() / Dgx[imax][jmax][kmax].real()); 
-  compactionfile << mu2 << ',' << k3 << std::endl;
 
+  double Cmax = 0;
+  int rsmax;
+  
   for (int rs = 1; rs <= //NL/2
     10./(2*M_PI*nsigma/NL); rs++) {
     std::vector<std::vector<std::vector<std::complex<double>>>> rzpk = gkbias;
@@ -234,8 +241,36 @@ int main(int argc, char *argv[])
     std::vector<std::vector<std::vector<std::complex<double>>>> rzpx = fftw(rzpk);
     double compaction = 2./3*(1-pow(1+rzpx[imax][jmax][kmax].real(),2));
 
+    if (compaction > Cmax) {
+      Cmax = compaction;
+      rsmax = rs;
+    }
+
     compactionfile << rs << ',' << compaction << std::endl;
   }
+
+  int count = 0;
+  double zetam = 0;
+  LOOP
+  {
+    int nxt = shiftedindex(i);
+    int nyt = shiftedindex(j);
+    int nzt = shiftedindex(k);
+    int nxm = shiftedindex(imax);
+    int nym = shiftedindex(jmax);
+    int nzm = shiftedindex(kmax);
+    double dr = sqrt((nxt-nxm)*(nxt-nxm)+(nyt-nym)*(nyt-nym)+(nzt-nzm)*(nzt-nzm));
+    if (fabs(dr-rsmax) < 1./2) {
+      zetam += gxbias[i][j][k].real() * sqrt(As);
+      count++;
+    }
+  }
+  zetam /= count;
+
+  double mu2 = Dgx[imax][jmax][kmax].real(); 
+  double k3 = sqrt(DDgx[imax][jmax][kmax].real() / Dgx[imax][jmax][kmax].real()); 
+  compactionfile << mu2 << ',' << k3 << ',' << 2*M_PI*nsigma/NL*rsmax << ',' << zetam << std::endl;
+
   std::cout << "Exported to " << Cfileprefix + std::to_string(seed) + ".csv" << std::endl;
  
 
