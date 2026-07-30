@@ -139,7 +139,8 @@ int main(int argc, char *argv[])
   int rsmax;
   double sigma1 = 2*M_PI*nsigma/NL;
   double sigma2 = pow(2*M_PI*nsigma/NL,2);
-  for (int rs = 1; rs <= NL/2; rs++) {
+  for (int rs = 1; rs <= //NL/2; 
+    10./(2*M_PI*nsigma/NL); rs++) {
     std::vector<std::vector<std::vector<std::complex<double>>>> rzpk = gkbias;
     LOOP
     {

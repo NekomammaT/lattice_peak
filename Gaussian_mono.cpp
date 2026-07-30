@@ -29,9 +29,9 @@ const std::complex<double> II(0, 1);
 const int NL = 256; // Box size NL
 const int nsigma = 16;
 const double dn = 1; // Thickness of nsigma sphere shell
-const double bias = 8; //10;
-const double As = 5e-3;
-const std::string mukfilename = std::string("data/mono_muk_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_2.csv");
+const double bias = 9; //8; //10;
+const double As = 3.625e-3; //5e-3;
+const std::string mukfilename = std::string("data/mono_muk_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string(".csv");
 
 // real-space top-hat window
 double WRTH(double z)
@@ -111,7 +111,8 @@ int main(int argc, char *argv[])
   int rsmax;
   double sigma1 = 2*M_PI*nsigma/NL;
   double sigma2 = pow(2*M_PI*nsigma/NL,2);
-  for (int rs = 1; rs <= NL/2; rs++) {
+  for (int rs = 1; rs <= //NL/2;
+    10./(2*M_PI*nsigma/NL); rs++) {
     std::vector<std::vector<std::vector<std::complex<double>>>> rzpk = gkbias;
     LOOP
     {
@@ -148,8 +149,8 @@ int main(int argc, char *argv[])
   }
   zetam /= count;
 
-  mukfile << seed << ',' << mu2 << ',' << k3 << ',' << k3*rsmax << ',' << zetam << ',' << Cmax << ',' << lnw << std::endl;
-  std::cout << seed << ',' << mu2 << ',' << k3 << ',' << k3*rsmax << ',' << zetam << ',' << Cmax << ',' << lnw << std::endl;
+  mukfile << seed << ',' << mu2 << ',' << k3 << ',' << 2*M_PI*nsigma/NL*rsmax << ',' << zetam << ',' << Cmax << ',' << lnw << std::endl;
+  //std::cout << seed << ',' << mu2 << ',' << k3 << ',' << k3*rsmax << ',' << zetam << ',' << Cmax << ',' << lnw << std::endl;
 
   // ---------- stop timer ----------
   gettimeofday(&Nv, &Nz);
