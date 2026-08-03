@@ -30,7 +30,7 @@ const std::complex<double> II(0, 1);
 // parameters
 const int NL = 256; // Box size NL
 const int nsigma = 16;
-const double As = 5e-3;
+const double As = 3.5e-3; //5e-3;
 const int nbias = 16;
 const double dlnn = 0.1; //1;
 const double biascoeff = 10; //18; //0.48;
