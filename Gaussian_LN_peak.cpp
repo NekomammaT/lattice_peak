@@ -28,20 +28,13 @@ const std::complex<double> II(0, 1);
 // parameters
 const int NL = 256; // Box size NL
 const int nsigma = 16;
-const double s2 = 0.1;
+const double s2 = 0.01; //0.1;
+const std::string s2value = "0,01";
 const double dn = 1; // Thickness of nsigma sphere shell
 // const double bias = 0.3;
-const std::string mapfileprefix = std::string("data/LN") //+ std::to_string((int)s2) 
-  + std::string("0,1")
-  + std::string("_map_");
-// const std::string biasedfileprefix = "data/mono_biased_";
-const std::string laplacianfileprefix = std::string("data/LN") //+ std::to_string((int)s2) 
-  + std::string("0,1")
-  + std::string("_laplacian_");
-// const std::string powerfileprefix = "data/mono_power_";
-const std::string peakfileprefix = std::string("data/LN") //+ std::to_string((int)s2) 
-  + std::string("0,1")
-  + std::string("_peak_");
+const std::string mapfileprefix = std::string("data/LN_map_") + s2value + std::string("_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_");
+const std::string laplacianfileprefix = std::string("data/LN_laplacian_") + s2value + std::string("_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_");
+const std::string peakfileprefix = std::string("data/LN_peak_") + s2value + std::string("_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_");
 
 // power spectrum
 double powerspectrum(int wavenumber)
