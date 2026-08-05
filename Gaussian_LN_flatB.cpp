@@ -31,20 +31,13 @@ const std::complex<double> II(0, 1);
 const int NL = 256; // Box size NL
 const int nsigma = 16;
 const double As = 3.5e-3; //5e-3;
-// const int nbias = 16;
-// const double dlnn = 0.1; //0.01; //1;
-const double biascoeff = 10; //8; //18; //0.48;
-const double s2 = 0.01; // 0.1;
-const std::string s2value = "0,01"; // "0,1"; //std::to_string((int)s2); 
+const int nbias = 16;
+const double dlnn = 0.01; //1;
+const double biascoeff = 6; //10; //18; //0.48;
+const double s2 = 0.01; //0.1;
+const std::string s2value = "0,01"; //"0,1"; //std::to_string((int)s2); 
 const double dn = 1; // Thickness of nsigma sphere shell
-const std::string mapfileprefix = std::string("data/LN_map_") + s2value + std::string("_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_");
-//const std::string biasedfileprefix = std::string("data/LN_biased_") + s2value + std::string("_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_") + std::to_string(nbias) + std::string("_");
-const std::string biasedfileprefix = std::string("data/LN_biased_") + s2value + std::string("_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_flatB_");
-// const std::string laplacianfileprefix = std::string("data/LN_laplacian_") + s2value + std::string("_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_") + std::to_string(nbias) + std::string("_");
-const std::string laplacianfileprefix = std::string("data/LN_laplacian_") + s2value + std::string("_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_flatB_");
-const std::string powerfileprefix = std::string("data/LN_power_") + s2value + std::string("_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_");
-// const std::string Cfileprefix = std::string("data/LN_compaction_") + s2value + std::string("_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_") + std::to_string(nbias) + std::string("_");
-const std::string Cfileprefix = std::string("data/LN_compaction_") + s2value + std::string("_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_flatB_");
+const std::string mukfilename = std::string("data/LN_muk_") + s2value + std::string("_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_") + std::to_string(nbias) + std::string("_flatB.csv");
 
 // power spectrum
 double powerspectrum(int wavenumber)
@@ -52,20 +45,11 @@ double powerspectrum(int wavenumber)
   return exp(-pow(log(wavenumber)-log(nsigma),2)/2/s2) / sqrt(2*M_PI*s2);
 }
 
-/*
-// log-normal bias
+// flat bias
 double BN(int wavenumber, double dlnn, double biascoeff)
 {
-  return biascoeff * exp(-pow(log(wavenumber)-log(nbias),2)/2/dlnn) / sqrt(2*M_PI*dlnn);
+  return biascoeff; // * exp(-pow(log(wavenumber)-log(nbias),2)/2/dlnn) / sqrt(2*M_PI*dlnn);
 }
-  */
-
-// flat bias
-double BN(int wavenumber, double biascoeff)
-{
-  return biascoeff;
-}
-
 
 // real-space top-hat window
 double WRTH(double z)
@@ -85,7 +69,7 @@ int main(int argc, char *argv[])
 {
   if (argc != 2)
   {
-    std::cerr << "Specify the noise file number correctly." << std::endl;
+    std::cerr << "Specify the seed correctly." << std::endl;
     return 1;
   }
 
@@ -98,96 +82,29 @@ int main(int argc, char *argv[])
   before = (double)Nv.tv_sec + (double)Nv.tv_usec * 1.e-6;
   // --------------------------------------
 
-  uint32_t seed = atoi(argv[1]);
+  int seed = atoi(argv[1]);
   std::cout << "seed = " << seed << std::endl;
   std::mt19937 engine(std::hash<int>{}(seed));
+  std::ofstream mukfile(mukfilename, std::ios::app);
 
-
-  /*
-  // ----------- unbiased map -----------
-  std::ofstream mapfile(mapfileprefix + std::to_string(seed) + ".csv");
-
-  std::vector<std::vector<std::vector<std::complex<double>>>> gk = dwk(1, engine)*sqrt(powerspectrum(1)*dn);
-
-  for (int i = 2; i < sqrt(3)*NL; i++)
-  {
-    gk += dwk(i, engine)*(sqrt(powerspectrum(i)*dn/i));
-
-    std::cout << "\r" << i << " / " << std::floor(sqrt(3)*NL) << std::flush;
-  }
-  std::cout << std::endl;
-
-  std::vector<std::vector<std::vector<std::complex<double>>>> gx = fftw(gk);
-
-  LOOP
-  {
-    mapfile << gx[i][j][k].real(); 
-
-    if (i != NL-1 || j != NL-1 || k != NL-1) {
-      mapfile << ','; 
-    }
-  }
-  mapfile << std::endl;
-
-  std::cout << "Exported to " << mapfileprefix + std::to_string(seed) + ".csv" << std::endl;
-
-  // ----------- power spectrum ----------
-  std::ofstream powerfile(powerfileprefix + std::to_string(seed) + ".csv");
-
-  std::vector<std::vector<std::vector<std::complex<double>>>> gkp = fftw(gx)/NL/NL/NL;
-  int powerlistlength = std::round(sqrt(3)*(NL-1)) + 1;
-  std::vector<std::vector<double>> powerdata(powerlistlength, std::vector<double>{});
-
-  LOOP
-  {
-    int nxt = shiftedindex(i);
-    int nyt = shiftedindex(j);
-    int nzt = shiftedindex(k);
-    double ntnorm = sqrt(nxt*nxt+nyt*nyt+nzt*nzt);
-
-    powerdata[std::round(ntnorm)].push_back(std::norm(gkp[i][j][k]));
-  }
-
-  std::vector<double> calPg(powerlistlength, 0);
-  for (int i = 0; i < calPg.size(); i++)
-  {
-    if (powerdata[i].size() != 0)
-    {
-      for (int j = 0; j < powerdata[i].size(); j++)
-      {
-        calPg[i] += powerdata[i][j];
-      }
-      calPg[i] *= i;
-    }
-
-    powerfile << calPg[i];
-    if (i != calPg.size()-1) powerfile << ',';
-  }
-  powerfile << std::endl;
-
-  std::cout << "Exported to " << powerfileprefix + std::to_string(seed) + ".csv" << std::endl;
-
-  */
-  
-  
-  // ----------- biased map -----------
-  std::ofstream biasedfile(biasedfileprefix + std::to_string(seed) + ".csv");
-  std::ofstream laplacianfile(laplacianfileprefix + std::to_string(seed) + ".csv");
-  std::ofstream compactionfile(Cfileprefix + std::to_string(seed) + ".csv");
-
+  // ----------- unbiased/biased map -----------
   std::vector<std::vector<std::vector<std::complex<double>>>> gkbias(NL, std::vector<std::vector<std::complex<double>>>(NL, std::vector<std::complex<double>>(NL, 0)));
-
+  double lnw = 0; 
+  
   for (int i = 1; i < sqrt(3)*NL; i++)
   {
     std::vector<std::vector<std::vector<std::complex<double>>>> dwkt = dwk(i, engine)*sqrt(dn/i);
-    double bias = BN(i,biascoeff);
+    std::vector<std::vector<std::vector<std::complex<double>>>> dwxt = fftw(dwkt);
+    double bias = BN(i,dlnn,biascoeff);
+
+    lnw -= bias*dwxt[0][0][0].real() + 0.5*bias*bias*dn/i;
 
     gkbias += (dwkt + Bk(i, bias*dn/i))*sqrt(powerspectrum(i));
 
     std::cout << "\r" << i << " / " << std::floor(sqrt(3)*NL) << std::flush;
   }
   std::cout << std::endl;
-
+  
   std::vector<std::vector<std::vector<std::complex<double>>>> Dgk = gkbias;
   std::vector<std::vector<std::vector<std::complex<double>>>> DDgk = gkbias;
   LOOP
@@ -204,40 +121,25 @@ int main(int argc, char *argv[])
   std::vector<std::vector<std::vector<std::complex<double>>>> Dgx = fftw(Dgk);
   std::vector<std::vector<std::vector<std::complex<double>>>> DDgx = fftw(DDgk);
 
-
-  LOOP
-  {
-    biasedfile << gxbias[i][j][k].real(); 
-    laplacianfile << Dgx[i][j][k].real();
-
-    if (i != NL-1 || j != NL-1 || k != NL-1) {
-      biasedfile << ','; 
-      laplacianfile << ',';
-    }
-  }
-  biasedfile << std::endl;
-  laplacianfile << std::endl;
-  std::cout << "Exported to " << biasedfileprefix + std::to_string(seed) + ".csv" << std::endl;
-  std::cout << "Exported to " << laplacianfileprefix + std::to_string(seed) + ".csv" << std::endl;
-
-
   std::vector<double> Dgx1d(NL*NL*NL, 0);
   LOOP
   {
     Dgx1d[i*NL*NL+j*NL+k] = Dgx[i][j][k].real();
   }
-
   auto iter = std::max_element(Dgx1d.begin(), Dgx1d.end());
   size_t index = std::distance(Dgx1d.begin(), iter);
 
   int imax = index / (NL * NL);
   int jmax = (index - imax * NL * NL) / NL;
   int kmax = index - imax * NL * NL - jmax * NL;
+  double mu2 = Dgx[imax][jmax][kmax].real(); 
+  double k3 = sqrt(DDgx[imax][jmax][kmax].real() / Dgx[imax][jmax][kmax].real()); 
 
   double Cmax = 0;
   int rsmax;
-  
-  for (int rs = 1; rs <= //NL/2
+  double sigma1 = 2*M_PI*nsigma/NL;
+  double sigma2 = pow(2*M_PI*nsigma/NL,2);
+  for (int rs = 1; rs <= //NL/2; 
     10./(2*M_PI*nsigma/NL); rs++) {
     std::vector<std::vector<std::vector<std::complex<double>>>> rzpk = gkbias;
     LOOP
@@ -252,15 +154,11 @@ int main(int argc, char *argv[])
     }
     std::vector<std::vector<std::vector<std::complex<double>>>> rzpx = fftw(rzpk);
     double compaction = 2./3*(1-pow(1+rzpx[imax][jmax][kmax].real(),2));
-
     if (compaction > Cmax) {
       Cmax = compaction;
       rsmax = rs;
     }
-
-    compactionfile << rs << ',' << compaction << std::endl;
   }
-
   int count = 0;
   double zetam = 0;
   LOOP
@@ -279,13 +177,8 @@ int main(int argc, char *argv[])
   }
   zetam /= count;
 
-  double mu2 = Dgx[imax][jmax][kmax].real(); 
-  double k3 = sqrt(DDgx[imax][jmax][kmax].real() / Dgx[imax][jmax][kmax].real()); 
-  compactionfile << mu2 << ',' << k3 << ',' << 2*M_PI*nsigma/NL*rsmax << ',' << zetam << std::endl;
-
-  std::cout << "Exported to " << Cfileprefix + std::to_string(seed) + ".csv" << std::endl;
- 
-
+  mukfile << seed << ',' << mu2 << ',' << k3 << ',' << 2*M_PI*nsigma/NL*rsmax << ',' << zetam << ',' << Cmax << ',' << lnw << std::endl;
+  //std::cout << seed << ',' << mu2 << ',' << k3 << ',' << k3*rsmax << ',' << zetam << ',' << Cmax << ',' << lnw << std::endl;
 
   // ---------- stop timer ----------
   gettimeofday(&Nv, &Nz);
@@ -295,6 +188,9 @@ int main(int argc, char *argv[])
 
   return 0;
 }
+
+
+// -----------------------------------------------
 
 std::vector<std::vector<std::vector<std::complex<double>>>> dwk(int wavenumber, std::mt19937& engine)
 {
