@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run the ten seed-range jobs (1--999) concurrently and wait for all of them.
+# Run the ten seed-range jobs (1000--1999) concurrently and wait for all of them.
 set -u
 
 cd "$(dirname "$0")"
@@ -11,8 +11,8 @@ fi
 
 mkdir -p logs
 
-scripts=(Gaussian_LN_GB.sh)
-for job in {1..9}; do
+scripts=()
+for job in {10..19}; do
   scripts+=("Gaussian_LN_GB${job}.sh")
 done
 
