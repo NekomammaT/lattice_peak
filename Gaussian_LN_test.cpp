@@ -17,8 +17,8 @@ constexpr double As = 3.5e-3;
 constexpr int nbias = 16;
 constexpr double dlnn = 0.1;
 constexpr double biascoeff = 10;
-constexpr double s2 = 0.1;
-const std::string s2value = "0,1";
+constexpr double s2 = 0.01; //0.1;
+const std::string s2value = "0,01"; //"0,1";
 constexpr double dn = 1.0;
 constexpr std::size_t N3 = static_cast<std::size_t>(NL) * NL * NL;
 // shifted indices span [-127, 128], so the furthest populated shell is 222.
@@ -218,14 +218,15 @@ int main(int argc, char* argv[])
   const int imax = static_cast<int>(peak_index / (NL * NL)), jmax = static_cast<int>((peak_index / NL) % NL), kmax = static_cast<int>(peak_index % NL);
   for (std::size_t p = 0; p < N3; ++p) Dgk[p] *= k_unit * k_unit * modes.norm[p] * modes.norm[p];
   const double k3 = std::sqrt(fft.transform(Dgk)[peak_index].real() / mu2);
-  Grid().swap(Dgk);
-  Grid().swap(Dgx);
+  //Grid().swap(Dgk);
+  //Grid().swap(Dgx);
 
   double Cmax = 0.0;
   int rsmax = 0;
   Grid rzpk(N3);
   const int rs_limit = static_cast<int>(10.0 / (k_unit * nsigma));
   const int nxm = shiftedindex(imax), nym = shiftedindex(jmax), nzm = shiftedindex(kmax);
+  compactionfile << 0 << ',' << gxbias[index_of(imax, jmax, kmax)].real() * std::sqrt(As) << ',' << Dgx[index_of(imax, jmax, kmax)].real() * std::sqrt(As) << ',' << 0 << '\n';
   for (int rs = 1; rs <= rs_limit; ++rs) {
     for (std::size_t p = 0; p < N3; ++p) {
       const double kr = k_unit * modes.norm[p] * rs;
@@ -242,7 +243,15 @@ int main(int argc, char* argv[])
     }
     zetar /= count;
 
-    compactionfile << rs << ',' << zetar << ',' << compaction << '\n';
+    double Dzetar = 0.0;
+    count = 0;
+    for (int i = 0; i < NL; ++i) for (int j = 0; j < NL; ++j) for (int k = 0; k < NL; ++k) {
+      const int dx = shiftedindex(i) - nxm, dy = shiftedindex(j) - nym, dz = shiftedindex(k) - nzm;
+      if (std::fabs(std::sqrt(static_cast<double>(dx * dx + dy * dy + dz * dz)) - rs) < 0.5) { Dzetar += Dgx[index_of(i, j, k)].real() * std::sqrt(As); ++count; }
+    }
+    Dzetar /= count;
+
+    compactionfile << rs << ',' << zetar << ',' << Dzetar << ',' << compaction << '\n';
   }
   int count = 0;
   double zetam = 0.0;
