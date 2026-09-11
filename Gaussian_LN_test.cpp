@@ -225,6 +225,7 @@ int main(int argc, char* argv[])
   int rsmax = 0;
   Grid rzpk(N3);
   const int rs_limit = static_cast<int>(10.0 / (k_unit * nsigma));
+  const int nxm = shiftedindex(imax), nym = shiftedindex(jmax), nzm = shiftedindex(kmax);
   for (int rs = 1; rs <= rs_limit; ++rs) {
     for (std::size_t p = 0; p < N3; ++p) {
       const double kr = k_unit * modes.norm[p] * rs;
@@ -232,9 +233,17 @@ int main(int argc, char* argv[])
     }
     const double compaction = 2.0 / 3.0 * (1.0 - std::pow(1.0 + fft.transform(rzpk)[peak_index].real(), 2));
     if (compaction > Cmax) { Cmax = compaction; rsmax = rs; }
-    compactionfile << rs << ',' << compaction << '\n';
+
+    double zetar = 0.0;
+    int count = 0;
+    for (int i = 0; i < NL; ++i) for (int j = 0; j < NL; ++j) for (int k = 0; k < NL; ++k) {
+      const int dx = shiftedindex(i) - nxm, dy = shiftedindex(j) - nym, dz = shiftedindex(k) - nzm;
+      if (std::fabs(std::sqrt(static_cast<double>(dx * dx + dy * dy + dz * dz)) - rs) < 0.5) { zetar += gxbias[index_of(i, j, k)].real() * std::sqrt(As); ++count; }
+    }
+    zetar /= count;
+
+    compactionfile << rs << ',' << zetar << ',' << compaction << '\n';
   }
-  const int nxm = shiftedindex(imax), nym = shiftedindex(jmax), nzm = shiftedindex(kmax);
   int count = 0;
   double zetam = 0.0;
   for (int i = 0; i < NL; ++i) for (int j = 0; j < NL; ++j) for (int k = 0; k < NL; ++k) {
