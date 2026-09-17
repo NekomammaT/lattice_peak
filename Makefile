@@ -55,6 +55,15 @@ CXXFLAGS += -DNO_FFTW_THREADS
 $(info === libfftw3_threads not found: building without FFTW-level threading. ===)
 endif
 
+# EXTRA_DEFS lets you switch on extra memory-saving behaviour without
+# touching this file, e.g. for a large box:
+#   make clean && make EXTRA_DEFS=-DNO_FULL_FIELD_OUTPUT
+# -DNO_FULL_FIELD_OUTPUT skips computing/writing mapfile and skips writing
+# the laplacianfile CSV (Lpeakfile/Cpeakfile, the peak catalogues, are
+# unaffected and still written). See the comment block at the top of
+# Gaussian_mono_peak.cpp for exactly what this saves.
+CXXFLAGS += $(EXTRA_DEFS)
+
 all: $(MODEL)
 $(MODEL): $(MODEL).o
 	$(CXX) $(CXXFLAGS) -o $(MODEL) $(MODEL).o $(LDLIBS)
