@@ -4,7 +4,8 @@
 #include <sys/time.h>
 #include "fft.hpp"
 
-std::vector<std::vector<std::vector<std::complex<double>>>> dwk(int wavenumber, double bias, int seed);
+std::vector<std::vector<std::vector<std::complex<double>>>> dwk(int wavenumber, int seed);
+double WRTH(double z);
 int shiftedindex(int n); // shifted index
 bool innsigma(int nx, int ny, int nz, double wavenumber); // judge if point is in nsigma sphere shell
 bool realpoint(int nx, int ny, int nz);                   // judge real point
@@ -22,16 +23,30 @@ std::normal_distribution<> dist(0., 1.);
 // imaginary unit
 const std::complex<double> II(0, 1);
 
+// real-space top-hat window
+double WRTH(double z)
+{
+  if (z == 0)
+  {
+    return 1;
+  }
+  else
+  {
+    return 3 * (sin(z) - z * cos(z)) / pow(z, 3);
+  }
+}
+
+
 // parameters
 const int NL = 256; // Box size NL
 const int nsigma = 16;
+const double As = 3.625e-3;
 const double dn = 1; // Thickness of nsigma sphere shell
-const double bias = 0;
 const std::string mapfileprefix = std::string("data/mono_map_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_");
-// const std::string biasedfileprefix = "data/mono_biased_";
 const std::string laplacianfileprefix = std::string("data/mono_laplacian_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_");
-// const std::string powerfileprefix = "data/mono_power_";
-const std::string peakfileprefix = std::string("data/mono_peak_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_");
+const std::string Lpeakfileprefix = std::string("data/mono_Lpeak_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_");
+const std::string Cpeakfileprefix = std::string("data/mono_Cpeak_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_");
+
 
 int main(int argc, char *argv[])
 {
@@ -52,17 +67,13 @@ int main(int argc, char *argv[])
 
   int seed = atoi(argv[1]);
   std::ofstream mapfile(mapfileprefix + std::to_string(seed) + ".csv");
-  // std::ofstream biasedfile(biasedfileprefix + std::to_string(seed) + ".dat");
   std::ofstream laplacianfile(laplacianfileprefix + std::to_string(seed) + ".csv");
-  // std::ofstream powerfile(powerfileprefix + std::to_string(seed) + ".dat");
-  std::ofstream peakfile(peakfileprefix + std::to_string(seed) + ".csv");
+  std::ofstream Lpeakfile(Lpeakfileprefix + std::to_string(seed) + ".csv");
+  std::ofstream Cpeakfile(Cpeakfileprefix + std::to_string(seed) + ".csv");
 
   // ----------- unbiased map -----------
-  std::vector<std::vector<std::vector<std::complex<double>>>> gk = dwk(nsigma, 0., seed);
+  std::vector<std::vector<std::vector<std::complex<double>>>> gk = dwk(nsigma, seed);
   std::vector<std::vector<std::vector<std::complex<double>>>> gx = fftw(gk);
-  //double sigma1sq = pow(2*M_PI*nsigma/NL,2);
-  //double sigma2sq = pow(2*M_PI*nsigma/NL,4);
-  //double sigma4sq = pow(2*M_PI*nsigma/NL,8);
   
   LOOP
   {
@@ -91,7 +102,7 @@ int main(int argc, char *argv[])
 
   LOOP
   {
-    laplacianfile << D2gx[i][j][k].real(); // * sigma1sq/sigma2sq;
+    laplacianfile << D2gx[i][j][k].real(); 
     if (i != NL-1 || j != NL-1 || k != NL-1) laplacianfile << ','; 
   }
   laplacianfile << std::endl;
@@ -105,21 +116,21 @@ int main(int argc, char *argv[])
   LOOP
     {
       if (i == NL-1) {
-	DxD2gx[i][j][k] = D2gx[0][j][k].real() - D2gx[i][j][k].real();
+      	DxD2gx[i][j][k] = D2gx[0][j][k].real() - D2gx[i][j][k].real();
       } else {
-	DxD2gx[i][j][k] = D2gx[i+1][j][k].real() - D2gx[i][j][k].real();
+	      DxD2gx[i][j][k] = D2gx[i+1][j][k].real() - D2gx[i][j][k].real();
       }
 
       if (j == NL-1) {
-	DyD2gx[i][j][k] = D2gx[i][0][k].real() - D2gx[i][j][k].real();
+    	  DyD2gx[i][j][k] = D2gx[i][0][k].real() - D2gx[i][j][k].real();
       } else {
-	DyD2gx[i][j][k] = D2gx[i][j+1][k].real() - D2gx[i][j][k].real();
+	      DyD2gx[i][j][k] = D2gx[i][j+1][k].real() - D2gx[i][j][k].real();
       }
 
       if (k == NL-1) {
-	DzD2gx[i][j][k] = D2gx[i][j][0].real() - D2gx[i][j][k].real();
+	      DzD2gx[i][j][k] = D2gx[i][j][0].real() - D2gx[i][j][k].real();
       } else {
-	DzD2gx[i][j][k] = D2gx[i][j][k+1].real() - D2gx[i][j][k].real();
+  	    DzD2gx[i][j][k] = D2gx[i][j][k+1].real() - D2gx[i][j][k].real();
       }
     }
 
@@ -130,21 +141,21 @@ int main(int argc, char *argv[])
   LOOP
     {
       if (i == NL-1) {
-	DxD2gxrot[i][j][k] = DxD2gx[0][j][k];
+	      DxD2gxrot[i][j][k] = DxD2gx[0][j][k];
       } else {
-	DxD2gxrot[i][j][k] = DxD2gx[i+1][j][k];
+	      DxD2gxrot[i][j][k] = DxD2gx[i+1][j][k];
       }
 
       if (j == NL-1) {
-	DyD2gxrot[i][j][k] = DyD2gx[i][0][k];
+	      DyD2gxrot[i][j][k] = DyD2gx[i][0][k];
       } else {
-	DyD2gxrot[i][j][k] = DyD2gx[i][j+1][k];
+	      DyD2gxrot[i][j][k] = DyD2gx[i][j+1][k];
       }
 
       if (k == NL-1) {
-	DzD2gxrot[i][j][k] = DzD2gx[i][j][0];
+	      DzD2gxrot[i][j][k] = DzD2gx[i][j][0];
       } else {
-	DzD2gxrot[i][j][k] = DzD2gx[i][j][k+1];
+	      DzD2gxrot[i][j][k] = DzD2gx[i][j][k+1];
       }
     }
 
@@ -152,34 +163,147 @@ int main(int argc, char *argv[])
   LOOP
     {
       if (DxD2gx[i][j][k] * DxD2gxrot[i][j][k] < 0 && DxD2gx[i][j][k] > 0 && 
-	  DyD2gx[i][j][k] * DyD2gxrot[i][j][k] < 0 && DyD2gx[i][j][k] > 0 &&
-	  DzD2gx[i][j][k] * DzD2gxrot[i][j][k] < 0 && DzD2gx[i][j][k] > 0) {
-	if (i==NL-1) {
-	  ip = 0;
-	} else {
-	  ip = i+1;
-	}
+        DyD2gx[i][j][k] * DyD2gxrot[i][j][k] < 0 && DyD2gx[i][j][k] > 0 &&
+        DzD2gx[i][j][k] * DzD2gxrot[i][j][k] < 0 && DzD2gx[i][j][k] > 0) {
+	      if (i==NL-1) {
+	        ip = 0;
+	      } else {
+	        ip = i+1;
+	      }
 
-	if (j==NL-1) {
-	  jp = 0;
-	} else {
-	  jp = j+1;
-	}
+	      if (j==NL-1) {
+	        jp = 0;
+	      } else {
+	        jp = j+1;
+	      }
 
-	if (k==NL-1) {
-	  kp = 0;
-	} else {
-	  kp = k+1;
-	}
+      	if (k==NL-1) {
+	        kp = 0;
+      	} else {
+      	  kp = k+1;
+      	}
 
-	peakfile << ip << ',' << jp << ',' << kp << ','
-		 << D2gx[ip][jp][kp].real() << ',' // * sigma1sq/sigma2sq << ','
-		 << sqrt(D2D2gx[ip][jp][kp].real()/D2gx[ip][jp][kp].real())
-			 // * sqrt(sigma2sq/sigma4sq))
-		 << std::endl;
+	    Lpeakfile << ip << ',' << jp << ',' << kp << ','
+      << D2gx[ip][jp][kp].real() << ',' 
+      << sqrt(D2D2gx[ip][jp][kp].real()/D2gx[ip][jp][kp].real())
+		  << std::endl;
       }
     }
+
+  std::cout << "Exported to " << Lpeakfileprefix + std::to_string(seed) + ".csv" << std::endl;
   
+  // ----------- compaction ----------
+  std::vector<std::vector<std::vector<std::vector<double>>>> compaction;
+  for (int rs = 1; rs <= 10./(2*M_PI*nsigma/NL); rs++) {
+    std::vector<std::vector<std::vector<std::complex<double>>>> rzpk = gk;
+    compaction.push_back(std::vector<std::vector<std::vector<double>>>(NL, std::vector<std::vector<double>>(NL, std::vector<double>(NL, 0))));
+    LOOP
+    {
+      int nxt = shiftedindex(i);
+      int nyt = shiftedindex(j);
+      int nzt = shiftedindex(k);
+      double ntnorm = sqrt(nxt*nxt+nyt*nyt+nzt*nzt);
+      double kr = 2*M_PI*ntnorm*rs/NL;
+
+      rzpk[i][j][k] *= -kr*kr/3*WRTH(kr)*sqrt(As);
+    }
+    std::vector<std::vector<std::vector<std::complex<double>>>> rzpx = fftw(rzpk);
+    LOOP
+    {
+      compaction[rs-1][i][j][k] = 2./3*(1-pow(1+rzpx[i][j][k].real(),2));
+    }
+  }
+
+
+  std::vector<std::vector<std::vector<std::vector<double>>>> Dxcompaction = compaction;
+  std::vector<std::vector<std::vector<std::vector<double>>>> Dycompaction = compaction;
+  std::vector<std::vector<std::vector<std::vector<double>>>> Dzcompaction = compaction;
+  for (int r = 0; r < compaction.size(); r++) {
+    LOOP
+    {
+      if (i == NL-1) {
+      	Dxcompaction[r][i][j][k] = compaction[r][0][j][k] - compaction[r][i][j][k];
+      } else {
+        Dxcompaction[r][i][j][k] = compaction[r][i+1][j][k] - compaction[r][i][j][k];
+      }
+
+      if (j == NL-1) {
+    	  Dycompaction[r][i][j][k] = compaction[r][i][0][k] - compaction[r][i][j][k];
+      } else {
+        Dycompaction[r][i][j][k] = compaction[r][i][j+1][k] - compaction[r][i][j][k];
+      }
+
+      if (k == NL-1) {
+        Dzcompaction[r][i][j][k] = compaction[r][i][j][0] - compaction[r][i][j][k];
+      } else {
+  	    Dzcompaction[r][i][j][k] = compaction[r][i][j][k+1] - compaction[r][i][j][k];
+      }
+    }
+  }
+
+  std::vector<std::vector<std::vector<std::vector<double>>>> DxCrot = compaction;
+  std::vector<std::vector<std::vector<std::vector<double>>>> DyCrot = compaction;
+  std::vector<std::vector<std::vector<std::vector<double>>>> DzCrot = compaction;
+
+  for (int r = 0; r < compaction.size(); r++) {
+    LOOP
+      {
+        if (i == NL-1) {
+	        DxCrot[r][i][j][k] = Dxcompaction[r][0][j][k];
+        } else {
+  	      DxCrot[r][i][j][k] = Dxcompaction[r][i+1][j][k];
+        }
+
+        if (j == NL-1) {
+  	      DyCrot[r][i][j][k] = Dycompaction[r][i][0][k];
+        } else {
+  	      DyCrot[r][i][j][k] = Dycompaction[r][i][j+1][k];
+        }
+
+        if (k == NL-1) {
+  	      DzCrot[r][i][j][k] = Dzcompaction[r][i][j][0];
+        } else {
+  	      DzCrot[r][i][j][k] = Dzcompaction[r][i][j][k+1];
+        }
+      }
+    }
+
+  int rp;
+  for (int r = 0; r < compaction.size()-2; r++) {
+    LOOP
+      {
+        if (compaction[r][i][j][k] < compaction[r+1][i][j][k] && compaction[r+1][i][j][k] > compaction[r+2][i][j][k] &&
+          Dxcompaction[r][i][j][k] * DxCrot[r][i][j][k] < 0 && Dxcompaction[r][i][j][k] > 0 && 
+          Dycompaction[r][i][j][k] * DyCrot[r][i][j][k] < 0 && Dycompaction[r][i][j][k] > 0 &&
+          Dzcompaction[r][i][j][k] * DzCrot[r][i][j][k] < 0 && Dzcompaction[r][i][j][k] > 0) {
+
+            rp = r+1;
+
+    	      if (i==NL-1) {
+    	        ip = 0;
+    	      } else {
+    	        ip = i+1;
+    	      }
+
+    	      if (j==NL-1) {
+    	        jp = 0;
+    	      } else {
+    	        jp = j+1;
+    	      }
+
+          	if (k==NL-1) {
+  	          kp = 0;
+          	} else {
+          	  kp = k+1;
+          	}
+
+	        Cpeakfile << rp << ',' << ip << ',' << jp << ',' << kp << ','
+          << compaction[rp][ip][jp][kp] << std::endl;
+        }
+      }
+    }
+
+  std::cout << "Exported to " << Cpeakfileprefix + std::to_string(seed) + ".csv" << std::endl;
 
   // ---------- stop timer ----------
   gettimeofday(&Nv, &Nz);
@@ -194,7 +318,7 @@ int main(int argc, char *argv[])
 
 // -----------------------------------------------
 
-std::vector<std::vector<std::vector<std::complex<double>>>> dwk(int wavenumber, double bias, int seed)
+std::vector<std::vector<std::vector<std::complex<double>>>> dwk(int wavenumber, int seed)
 {
   std::vector<std::vector<std::vector<std::complex<double>>>> dwk(NL, std::vector<std::vector<std::complex<double>>>(NL, std::vector<std::complex<double>>(NL, 0)));
 
@@ -264,7 +388,6 @@ std::vector<std::vector<std::vector<std::complex<double>>>> dwk(int wavenumber, 
     LOOP{
       if (innsigma(i,j,k,wavenumber)) {
         dwk[i][j][k] /= sqrt(count);
-        dwk[i][j][k] += bias/count;
       }
     }
   }
