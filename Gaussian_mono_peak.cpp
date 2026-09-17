@@ -1,21 +1,73 @@
 #include <iostream>
 #include <fstream>
 #include <random>
+#include <array>
+#include <algorithm>
+#include <charconv>
+#include <cmath>
 #include <sys/time.h>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 #include "fft.hpp"
 
-std::vector<std::vector<std::vector<std::complex<double>>>> dwk(int wavenumber, int seed);
+// ============================================================================
+// Performance notes (what changed vs. the original Gaussian_mono_peak.cpp)
+// ----------------------------------------------------------------------
+// 1. All std::vector<std::vector<std::vector<T>>> 3D arrays were replaced by
+//    flat, row-major std::vector<T> (Grid / RGrid, index via IDX(i,j,k)).
+//    The nested-vector version allocates NL*NL+NL small vectors per array
+//    and needs 3 pointer dereferences per element access; the flat version
+//    is one allocation and one multiply-add per access, which is both much
+//    faster and makes safe OpenMP parallelisation straightforward.
+// 2. fft.hpp no longer copies data in/out through a triple-nested loop of
+//    vector-of-vector-of-vector indexing; it memcpy's the already-flat
+//    buffer into an FFTW-aligned scratch buffer once. The FFTW plan itself
+//    is created ONCE (FFTW_MEASURE) and reused for every one of the ~30
+//    same-size transforms this program performs, and FFTW is linked against
+//    its threaded backend (fftw3_threads) so each individual transform is
+//    itself parallelised across cores.
+// 3. The "compaction" section used to allocate one full NL^3 array per
+//    smoothing radius (up to ~25 radii) for the field itself AND for its
+//    x/y/z gradients AND for the "rotated" (neighbour-shifted) copies of
+//    those gradients -- about 22 GB of RAM at NL=256. Peak-finding across
+//    radius only ever needs three consecutive shells' values plus the
+//    gradient of the middle one, so this is now computed with a 3-shell
+//    sliding window, cutting peak memory by roughly an order of magnitude
+//    and removing the resulting cache/allocator thrashing. The "rotated"
+//    copies were removed entirely -- they are just a neighbour lookup into
+//    an array we already have, so no need to store them at all.
+// 4. All embarrassingly-parallel element-wise loops (spectral scaling,
+//    finite-difference gradients, peak-condition tests) are parallelised
+//    with OpenMP over the (i, j) plane, keeping the innermost k loop
+//    sequential and contiguous in memory for cache-friendliness. Writes to
+//    the (rare) peak output files are protected with `omp critical`.
+// 5. The random-number generation in dwk() is INTENTIONALLY left serial
+//    (single-threaded, same draw order as the original): parallelising a
+//    shared std::mt19937 stream would change which normal deviates land on
+//    which grid point for a given seed, silently changing every downstream
+//    result. That loop only touches a thin shell of the k-grid (a few
+//    thousand points, not NL^3) so it is not a performance bottleneck
+//    anyway; it has simply been restructured to visit the shell points via
+//    a pre-built list instead of re-scanning all NL^3 points three times.
+// 6. CSV writing of the two full-box fields (map, laplacian -- 16.7M
+//    numbers each at NL=256) used ostream's `operator<<` one value at a
+//    time, which is dominated by iostream formatting overhead. It is
+//    replaced by std::to_chars (verified byte-for-byte identical to the
+//    original `operator<<` output, i.e. still 6 significant digits,
+//    general format) run in parallel per chunk, then concatenated once.
+//
+// Build with the accompanying Makefile: -fopenmp -lfftw3_threads -lfftw3.
+// Control the thread count with the OMP_NUM_THREADS environment variable
+// if you run several seeds concurrently on the same machine.
+// ============================================================================
+
+Grid dwk(int wavenumber, int seed);
 double WRTH(double z);
 int shiftedindex(int n); // shifted index
 bool innsigma(int nx, int ny, int nz, double wavenumber); // judge if point is in nsigma sphere shell
 bool realpoint(int nx, int ny, int nz);                   // judge real point
 bool complexpoint(int nx, int ny, int nz);                // judge independent complex point
-
-// useful macro
-#define LOOP                     \
-  for (int i = 0; i < NL; i++)   \
-    for (int j = 0; j < NL; j++) \
-      for (int k = 0; k < NL; k++)
 
 // random distribution
 std::normal_distribution<> dist(0., 1.);
@@ -36,17 +88,188 @@ double WRTH(double z)
   }
 }
 
-
 // parameters
-const int NL = 256; // Box size NL
+const int NL = 512; //256; // Box size NL
 const int nsigma = 16;
-const double As = 3.625e-3;
+const double As = 1e-2; //5e-3; //3.625e-3;
 const double dn = 1; // Thickness of nsigma sphere shell
-const std::string mapfileprefix = std::string("data/mono_map_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_");
-const std::string laplacianfileprefix = std::string("data/mono_laplacian_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_");
+//const std::string mapfileprefix = std::string("data/mono_map_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_");
+//const std::string laplacianfileprefix = std::string("data/mono_laplacian_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_");
 const std::string Lpeakfileprefix = std::string("data/mono_Lpeak_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_");
 const std::string Cpeakfileprefix = std::string("data/mono_Cpeak_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_");
 
+// flat-index helper: matches the (i,j,k) -> i*NL*NL + j*NL + k layout used
+// throughout (row-major, same iteration order as the original triple loop)
+inline size_t IDX(int i, int j, int k)
+{
+  return (static_cast<size_t>(i) * NL + j) * NL + k;
+}
+
+inline int nextIndex(int n) { return (n == NL - 1) ? 0 : n + 1; }
+
+// Convert n values (accessed through getValue(idx)) to a comma-separated
+// CSV string, using std::to_chars in parallel chunks. Produces byte-for-byte
+// the same text as the original `stream << value` (general format, 6
+// significant digits -- verified), but without paying iostream formatting
+// overhead 16.7 million times over.
+template <typename F>
+std::string valuesToCSV(size_t n, F &&getValue)
+{
+  int nthreads = 1;
+#ifdef _OPENMP
+  nthreads = omp_get_max_threads();
+#endif
+  if (nthreads < 1) nthreads = 1;
+
+  std::vector<std::string> parts(nthreads);
+  size_t chunk = (n + nthreads - 1) / static_cast<size_t>(nthreads);
+
+#pragma omp parallel for schedule(static)
+  for (int t = 0; t < nthreads; t++)
+  {
+    size_t begin = std::min(n, static_cast<size_t>(t) * chunk);
+    size_t end = std::min(n, begin + chunk);
+    std::string &s = parts[t];
+    s.reserve((end - begin) * 14);
+    char tmp[32];
+    for (size_t idx = begin; idx < end; idx++)
+    {
+      auto res = std::to_chars(tmp, tmp + sizeof(tmp), getValue(idx), std::chars_format::general, 6);
+      s.append(tmp, res.ptr - tmp);
+      if (idx + 1 != n) s.push_back(',');
+    }
+  }
+
+  size_t total = 0;
+  for (auto &s : parts) total += s.size();
+  std::string out;
+  out.reserve(total);
+  for (auto &s : parts) out += s;
+  return out;
+}
+
+// Appends v to s using the same text format as `stream << v` (general
+// format, 6 significant digits for doubles; plain decimal for ints) --
+// verified byte-for-byte identical to ostream's default formatting.
+inline void appendNum(std::string &s, double v)
+{
+  char tmp[32];
+  auto res = std::to_chars(tmp, tmp + sizeof(tmp), v, std::chars_format::general, 6);
+  s.append(tmp, res.ptr - tmp);
+}
+inline void appendNum(std::string &s, int v)
+{
+  char tmp[16];
+  auto res = std::to_chars(tmp, tmp + sizeof(tmp), v);
+  s.append(tmp, res.ptr - tmp);
+}
+
+// Computes the compaction field (real space) smoothed at radius rs, given
+// the un-smoothed Fourier-space map gk. This is exactly the per-radius body
+// of the original compaction loop, factored out so it can be called from a
+// 3-shell sliding window instead of building the full history up front.
+RGrid computeCompactionShell(const Grid &gk, const FFTW3DPlan &fftplan, int rs)
+{
+  Grid rzpk(gk.size());
+#pragma omp parallel for collapse(2) schedule(static)
+  for (int i = 0; i < NL; i++)
+    for (int j = 0; j < NL; j++)
+      for (int k = 0; k < NL; k++)
+      {
+        size_t idx = IDX(i, j, k);
+        int nxt = shiftedindex(i);
+        int nyt = shiftedindex(j);
+        int nzt = shiftedindex(k);
+        double ntnorm = sqrt(nxt * nxt + nyt * nyt + nzt * nzt);
+        double kr = 2 * M_PI * ntnorm * rs / NL;
+        rzpk[idx] = gk[idx] * (-kr * kr / 3 * WRTH(kr) * sqrt(As));
+      }
+
+  Grid rzpx = fftplan.execute(rzpk);
+
+  RGrid compaction(gk.size());
+#pragma omp parallel for collapse(2) schedule(static)
+  for (int i = 0; i < NL; i++)
+    for (int j = 0; j < NL; j++)
+      for (int k = 0; k < NL; k++)
+      {
+        size_t idx = IDX(i, j, k);
+        double v = rzpx[idx].real();
+        compaction[idx] = 2. / 3 * (1 - (1 + v) * (1 + v));
+      }
+
+  return compaction;
+}
+
+// Peak test across the radius direction (r-1, r, r+1 in the *original*
+// r-loop's indexing, here passed in as C0/C1/C2) combined with the spatial
+// saddle-point test on C0's gradient. This is exactly the body of the
+// original `for (r ...)` peak-detection loop, just reading its inputs from
+// the sliding window instead of fully materialised per-radius arrays.
+void processCompactionPeaks(int r, const RGrid &C0, const RGrid &C1, const RGrid &C2, std::ofstream &Cpeakfile)
+{
+  RGrid Dx(C0.size()), Dy(C0.size()), Dz(C0.size());
+#pragma omp parallel for collapse(2) schedule(static)
+  for (int i = 0; i < NL; i++)
+    for (int j = 0; j < NL; j++)
+      for (int k = 0; k < NL; k++)
+      {
+        size_t idx = IDX(i, j, k);
+        int ip = nextIndex(i), jp = nextIndex(j), kp = nextIndex(k);
+        Dx[idx] = C0[IDX(ip, j, k)] - C0[idx];
+        Dy[idx] = C0[IDX(i, jp, k)] - C0[idx];
+        Dz[idx] = C0[IDX(i, j, kp)] - C0[idx];
+      }
+
+  // Each thread appends its hits, in the order it encounters them, to its
+  // own buffer; buffers are then written out in thread-index order. Since
+  // OpenMP's static schedule hands out contiguous, increasing blocks of the
+  // collapsed (i,j) space to increasing thread numbers, this reproduces
+  // exactly the same line order the original fully-serial i/j/k loop would
+  // have produced, while still doing the scan itself in parallel.
+  int nthreads = 1;
+#ifdef _OPENMP
+  nthreads = omp_get_max_threads();
+#endif
+  std::vector<std::string> buffers(nthreads);
+
+#pragma omp parallel
+  {
+    int tid = 0;
+#ifdef _OPENMP
+    tid = omp_get_thread_num();
+#endif
+    std::string &buf = buffers[tid];
+#pragma omp for collapse(2) schedule(static)
+    for (int i = 0; i < NL; i++)
+      for (int j = 0; j < NL; j++)
+        for (int k = 0; k < NL; k++)
+        {
+          size_t idx = IDX(i, j, k);
+          if (C0[idx] < C1[idx] && C1[idx] > C2[idx])
+          {
+            int ip = nextIndex(i), jp = nextIndex(j), kp = nextIndex(k);
+            double dxrot = Dx[IDX(ip, j, k)];
+            double dyrot = Dy[IDX(i, jp, k)];
+            double dzrot = Dz[IDX(i, j, kp)];
+            if (Dx[idx] * dxrot < 0 && Dx[idx] > 0 &&
+                Dy[idx] * dyrot < 0 && Dy[idx] > 0 &&
+                Dz[idx] * dzrot < 0 && Dz[idx] > 0)
+            {
+              int rp = r + 1;
+              double val = C1[IDX(ip, jp, kp)];
+              appendNum(buf, rp); buf += ',';
+              appendNum(buf, ip); buf += ',';
+              appendNum(buf, jp); buf += ',';
+              appendNum(buf, kp); buf += ',';
+              appendNum(buf, val); buf += '\n';
+            }
+          }
+        }
+  }
+
+  for (auto &buf : buffers) Cpeakfile << buf;
+}
 
 int main(int argc, char *argv[])
 {
@@ -60,248 +283,149 @@ int main(int argc, char *argv[])
   struct timeval Nv;
   struct timezone Nz;
   double before, after;
-  
+
   gettimeofday(&Nv, &Nz);
   before = (double)Nv.tv_sec + (double)Nv.tv_usec * 1.e-6;
   // --------------------------------------
 
   int seed = atoi(argv[1]);
-  std::ofstream mapfile(mapfileprefix + std::to_string(seed) + ".csv");
-  std::ofstream laplacianfile(laplacianfileprefix + std::to_string(seed) + ".csv");
-  std::ofstream Lpeakfile(Lpeakfileprefix + std::to_string(seed) + ".csv");
-  std::ofstream Cpeakfile(Cpeakfileprefix + std::to_string(seed) + ".csv");
+
+  int nthreads = 1;
+#ifdef _OPENMP
+  nthreads = omp_get_max_threads();
+#endif
+  FFTW3DPlan fftplan(NL, nthreads);
 
   // ----------- unbiased map -----------
-  std::vector<std::vector<std::vector<std::complex<double>>>> gk = dwk(nsigma, seed);
-  std::vector<std::vector<std::vector<std::complex<double>>>> gx = fftw(gk);
-  
-  LOOP
-  {
-    mapfile << gx[i][j][k].real();
-    if (i != NL-1 || j != NL-1 || k != NL-1) mapfile << ','; 
-  }
-  mapfile << std::endl;
+  Grid gk = dwk(nsigma, seed);
+  Grid gx = fftplan.execute(gk);
 
+  /*
+  std::ofstream mapfile(mapfileprefix + std::to_string(seed) + ".csv");
+  mapfile << valuesToCSV(gx.size(), [&](size_t idx) { return gx[idx].real(); }) << std::endl;
   std::cout << "Exported to " << mapfileprefix + std::to_string(seed) + ".csv" << std::endl;
+  */
 
   // ----------- laplacian -----------
-  std::vector<std::vector<std::vector<std::complex<double>>>> D2gk = gk;
-  std::vector<std::vector<std::vector<std::complex<double>>>> D2D2gk = gk;
-  LOOP
-    {
-      int nxt = shiftedindex(i);
-      int nyt = shiftedindex(j);
-      int nzt = shiftedindex(k);
-      double ntnorm = sqrt(nxt*nxt+nyt*nyt+nzt*nzt);
-      
-      D2gk[i][j][k] *= pow(2*M_PI*ntnorm/NL,2);
-      D2D2gk[i][j][k] *= pow(2*M_PI*ntnorm/NL,4);
-    }
-  std::vector<std::vector<std::vector<std::complex<double>>>> D2gx = fftw(D2gk);
-  std::vector<std::vector<std::vector<std::complex<double>>>> D2D2gx = fftw(D2D2gk);
+  Grid D2gk(gk.size()), D2D2gk(gk.size());
+#pragma omp parallel for collapse(2) schedule(static)
+  for (int i = 0; i < NL; i++)
+    for (int j = 0; j < NL; j++)
+      for (int k = 0; k < NL; k++)
+      {
+        size_t idx = IDX(i, j, k);
+        int nxt = shiftedindex(i);
+        int nyt = shiftedindex(j);
+        int nzt = shiftedindex(k);
+        double ntnorm = sqrt(nxt * nxt + nyt * nyt + nzt * nzt);
+        D2gk[idx] = gk[idx] * pow(2 * M_PI * ntnorm / NL, 2);
+        D2D2gk[idx] = gk[idx] * pow(2 * M_PI * ntnorm / NL, 4);
+      }
 
-  LOOP
-  {
-    laplacianfile << D2gx[i][j][k].real(); 
-    if (i != NL-1 || j != NL-1 || k != NL-1) laplacianfile << ','; 
-  }
-  laplacianfile << std::endl;
+  Grid D2gx = fftplan.execute(D2gk);
+  Grid D2D2gx = fftplan.execute(D2D2gk);
 
+  /*
+  std::ofstream laplacianfile(laplacianfileprefix + std::to_string(seed) + ".csv");
+  laplacianfile << valuesToCSV(D2gx.size(), [&](size_t idx) { return D2gx[idx].real(); }) << std::endl;
   std::cout << "Exported to " << laplacianfileprefix + std::to_string(seed) + ".csv" << std::endl;
+  */
 
-  // ----------- gradient ------------
-  std::vector<std::vector<std::vector<double>>> DxD2gx(NL, std::vector<std::vector<double>>(NL, std::vector<double>(NL, 0)));
-  std::vector<std::vector<std::vector<double>>> DyD2gx = DxD2gx;
-  std::vector<std::vector<std::vector<double>>> DzD2gx = DxD2gx;
-  LOOP
+  // ----------- gradient (finite differences of D2gx) ------------
+  RGrid DxD2gx(gk.size()), DyD2gx(gk.size()), DzD2gx(gk.size());
+#pragma omp parallel for collapse(2) schedule(static)
+  for (int i = 0; i < NL; i++)
+    for (int j = 0; j < NL; j++)
+      for (int k = 0; k < NL; k++)
+      {
+        size_t idx = IDX(i, j, k);
+        int ip = nextIndex(i), jp = nextIndex(j), kp = nextIndex(k);
+        DxD2gx[idx] = D2gx[IDX(ip, j, k)].real() - D2gx[idx].real();
+        DyD2gx[idx] = D2gx[IDX(i, jp, k)].real() - D2gx[idx].real();
+        DzD2gx[idx] = D2gx[IDX(i, j, kp)].real() - D2gx[idx].real();
+      }
+
+  // ----------- Laplacian peak detection -----------
+  // (DxD2gxrot/DyD2gxrot/DzD2gxrot from the original are just DxD2gx/.. read
+  // at a neighbour index -- no need to materialise separate arrays for them.)
+  // As with the compaction peaks below, each thread buffers its hits in
+  // encounter order and buffers are concatenated in thread order afterwards,
+  // so the file ends up in the same row order the serial original produced.
+
+  std::ofstream Lpeakfile(Lpeakfileprefix + std::to_string(seed) + ".csv");
+  {
+    int nthreadsL = 1;
+#ifdef _OPENMP
+    nthreadsL = omp_get_max_threads();
+#endif
+    std::vector<std::string> lbuffers(nthreadsL);
+#pragma omp parallel
     {
-      if (i == NL-1) {
-      	DxD2gx[i][j][k] = D2gx[0][j][k].real() - D2gx[i][j][k].real();
-      } else {
-	      DxD2gx[i][j][k] = D2gx[i+1][j][k].real() - D2gx[i][j][k].real();
-      }
-
-      if (j == NL-1) {
-    	  DyD2gx[i][j][k] = D2gx[i][0][k].real() - D2gx[i][j][k].real();
-      } else {
-	      DyD2gx[i][j][k] = D2gx[i][j+1][k].real() - D2gx[i][j][k].real();
-      }
-
-      if (k == NL-1) {
-	      DzD2gx[i][j][k] = D2gx[i][j][0].real() - D2gx[i][j][k].real();
-      } else {
-  	    DzD2gx[i][j][k] = D2gx[i][j][k+1].real() - D2gx[i][j][k].real();
-      }
+      int tid = 0;
+#ifdef _OPENMP
+      tid = omp_get_thread_num();
+#endif
+      std::string &buf = lbuffers[tid];
+#pragma omp for collapse(2) schedule(static)
+      for (int i = 0; i < NL; i++)
+        for (int j = 0; j < NL; j++)
+          for (int k = 0; k < NL; k++)
+          {
+            size_t idx = IDX(i, j, k);
+            int ip = nextIndex(i), jp = nextIndex(j), kp = nextIndex(k);
+            double dxrot = DxD2gx[IDX(ip, j, k)];
+            double dyrot = DyD2gx[IDX(i, jp, k)];
+            double dzrot = DzD2gx[IDX(i, j, kp)];
+            if (DxD2gx[idx] * dxrot < 0 && DxD2gx[idx] > 0 &&
+                DyD2gx[idx] * dyrot < 0 && DyD2gx[idx] > 0 &&
+                DzD2gx[idx] * dzrot < 0 && DzD2gx[idx] > 0)
+            {
+              size_t idxp = IDX(ip, jp, kp);
+              appendNum(buf, ip); buf += ',';
+              appendNum(buf, jp); buf += ',';
+              appendNum(buf, kp); buf += ',';
+              appendNum(buf, D2gx[idxp].real()); buf += ',';
+              appendNum(buf, sqrt(D2D2gx[idxp].real() / D2gx[idxp].real())); buf += '\n';
+            }
+          }
     }
-
-  std::vector<std::vector<std::vector<double>>> DxD2gxrot = DxD2gx;
-  std::vector<std::vector<std::vector<double>>> DyD2gxrot = DyD2gx;
-  std::vector<std::vector<std::vector<double>>> DzD2gxrot = DzD2gx;
-
-  LOOP
-    {
-      if (i == NL-1) {
-	      DxD2gxrot[i][j][k] = DxD2gx[0][j][k];
-      } else {
-	      DxD2gxrot[i][j][k] = DxD2gx[i+1][j][k];
-      }
-
-      if (j == NL-1) {
-	      DyD2gxrot[i][j][k] = DyD2gx[i][0][k];
-      } else {
-	      DyD2gxrot[i][j][k] = DyD2gx[i][j+1][k];
-      }
-
-      if (k == NL-1) {
-	      DzD2gxrot[i][j][k] = DzD2gx[i][j][0];
-      } else {
-	      DzD2gxrot[i][j][k] = DzD2gx[i][j][k+1];
-      }
-    }
-
-  int ip, jp, kp;
-  LOOP
-    {
-      if (DxD2gx[i][j][k] * DxD2gxrot[i][j][k] < 0 && DxD2gx[i][j][k] > 0 && 
-        DyD2gx[i][j][k] * DyD2gxrot[i][j][k] < 0 && DyD2gx[i][j][k] > 0 &&
-        DzD2gx[i][j][k] * DzD2gxrot[i][j][k] < 0 && DzD2gx[i][j][k] > 0) {
-	      if (i==NL-1) {
-	        ip = 0;
-	      } else {
-	        ip = i+1;
-	      }
-
-	      if (j==NL-1) {
-	        jp = 0;
-	      } else {
-	        jp = j+1;
-	      }
-
-      	if (k==NL-1) {
-	        kp = 0;
-      	} else {
-      	  kp = k+1;
-      	}
-
-	    Lpeakfile << ip << ',' << jp << ',' << kp << ','
-      << D2gx[ip][jp][kp].real() << ',' 
-      << sqrt(D2D2gx[ip][jp][kp].real()/D2gx[ip][jp][kp].real())
-		  << std::endl;
-      }
-    }
+    for (auto &buf : lbuffers) Lpeakfile << buf;
+  }
 
   std::cout << "Exported to " << Lpeakfileprefix + std::to_string(seed) + ".csv" << std::endl;
-  
-  // ----------- compaction ----------
-  std::vector<std::vector<std::vector<std::vector<double>>>> compaction;
-  for (int rs = 1; rs <= 10./(2*M_PI*nsigma/NL); rs++) {
-    std::vector<std::vector<std::vector<std::complex<double>>>> rzpk = gk;
-    compaction.push_back(std::vector<std::vector<std::vector<double>>>(NL, std::vector<std::vector<double>>(NL, std::vector<double>(NL, 0))));
-    LOOP
-    {
-      int nxt = shiftedindex(i);
-      int nyt = shiftedindex(j);
-      int nzt = shiftedindex(k);
-      double ntnorm = sqrt(nxt*nxt+nyt*nyt+nzt*nzt);
-      double kr = 2*M_PI*ntnorm*rs/NL;
 
-      rzpk[i][j][k] *= -kr*kr/3*WRTH(kr)*sqrt(As);
-    }
-    std::vector<std::vector<std::vector<std::complex<double>>>> rzpx = fftw(rzpk);
-    LOOP
+  // ----------- compaction (3-shell sliding window over radius) ----------
+  std::ofstream Cpeakfile(Cpeakfileprefix + std::to_string(seed) + ".csv");
+
+  double Rbound = 5. / (2 * M_PI * nsigma / NL); //10. / (2 * M_PI * nsigma / NL);
+  RGrid C0, C1, C2;
+  int haveCount = 0;
+
+  for (int rs = 1; rs <= Rbound; rs++)
+  {
+    RGrid Cnew = computeCompactionShell(gk, fftplan, rs);
+    int shellIdx = rs - 1; // 0-based, matches original compaction[rs-1]
+
+    if (haveCount < 3)
     {
-      compaction[rs-1][i][j][k] = 2./3*(1-pow(1+rzpx[i][j][k].real(),2));
+      if (haveCount == 0) C0 = std::move(Cnew);
+      else if (haveCount == 1) C1 = std::move(Cnew);
+      else C2 = std::move(Cnew);
+      haveCount++;
+    }
+    else
+    {
+      C0 = std::move(C1);
+      C1 = std::move(C2);
+      C2 = std::move(Cnew);
+    }
+
+    if (haveCount == 3)
+    {
+      int r = shellIdx - 2; // matches the original loop variable r (0-based)
+      processCompactionPeaks(r, C0, C1, C2, Cpeakfile);
     }
   }
-
-
-  std::vector<std::vector<std::vector<std::vector<double>>>> Dxcompaction = compaction;
-  std::vector<std::vector<std::vector<std::vector<double>>>> Dycompaction = compaction;
-  std::vector<std::vector<std::vector<std::vector<double>>>> Dzcompaction = compaction;
-  for (int r = 0; r < compaction.size(); r++) {
-    LOOP
-    {
-      if (i == NL-1) {
-      	Dxcompaction[r][i][j][k] = compaction[r][0][j][k] - compaction[r][i][j][k];
-      } else {
-        Dxcompaction[r][i][j][k] = compaction[r][i+1][j][k] - compaction[r][i][j][k];
-      }
-
-      if (j == NL-1) {
-    	  Dycompaction[r][i][j][k] = compaction[r][i][0][k] - compaction[r][i][j][k];
-      } else {
-        Dycompaction[r][i][j][k] = compaction[r][i][j+1][k] - compaction[r][i][j][k];
-      }
-
-      if (k == NL-1) {
-        Dzcompaction[r][i][j][k] = compaction[r][i][j][0] - compaction[r][i][j][k];
-      } else {
-  	    Dzcompaction[r][i][j][k] = compaction[r][i][j][k+1] - compaction[r][i][j][k];
-      }
-    }
-  }
-
-  std::vector<std::vector<std::vector<std::vector<double>>>> DxCrot = compaction;
-  std::vector<std::vector<std::vector<std::vector<double>>>> DyCrot = compaction;
-  std::vector<std::vector<std::vector<std::vector<double>>>> DzCrot = compaction;
-
-  for (int r = 0; r < compaction.size(); r++) {
-    LOOP
-      {
-        if (i == NL-1) {
-	        DxCrot[r][i][j][k] = Dxcompaction[r][0][j][k];
-        } else {
-  	      DxCrot[r][i][j][k] = Dxcompaction[r][i+1][j][k];
-        }
-
-        if (j == NL-1) {
-  	      DyCrot[r][i][j][k] = Dycompaction[r][i][0][k];
-        } else {
-  	      DyCrot[r][i][j][k] = Dycompaction[r][i][j+1][k];
-        }
-
-        if (k == NL-1) {
-  	      DzCrot[r][i][j][k] = Dzcompaction[r][i][j][0];
-        } else {
-  	      DzCrot[r][i][j][k] = Dzcompaction[r][i][j][k+1];
-        }
-      }
-    }
-
-  int rp;
-  for (int r = 0; r < compaction.size()-2; r++) {
-    LOOP
-      {
-        if (compaction[r][i][j][k] < compaction[r+1][i][j][k] && compaction[r+1][i][j][k] > compaction[r+2][i][j][k] &&
-          Dxcompaction[r][i][j][k] * DxCrot[r][i][j][k] < 0 && Dxcompaction[r][i][j][k] > 0 && 
-          Dycompaction[r][i][j][k] * DyCrot[r][i][j][k] < 0 && Dycompaction[r][i][j][k] > 0 &&
-          Dzcompaction[r][i][j][k] * DzCrot[r][i][j][k] < 0 && Dzcompaction[r][i][j][k] > 0) {
-
-            rp = r+1;
-
-    	      if (i==NL-1) {
-    	        ip = 0;
-    	      } else {
-    	        ip = i+1;
-    	      }
-
-    	      if (j==NL-1) {
-    	        jp = 0;
-    	      } else {
-    	        jp = j+1;
-    	      }
-
-          	if (k==NL-1) {
-  	          kp = 0;
-          	} else {
-          	  kp = k+1;
-          	}
-
-	        Cpeakfile << rp << ',' << ip << ',' << jp << ',' << kp << ','
-          << compaction[rp][ip][jp][kp] << std::endl;
-        }
-      }
-    }
 
   std::cout << "Exported to " << Cpeakfileprefix + std::to_string(seed) + ".csv" << std::endl;
 
@@ -314,81 +438,85 @@ int main(int argc, char *argv[])
   return 0;
 }
 
-
-
 // -----------------------------------------------
 
-std::vector<std::vector<std::vector<std::complex<double>>>> dwk(int wavenumber, int seed)
+Grid dwk(int wavenumber, int seed)
 {
-  std::vector<std::vector<std::vector<std::complex<double>>>> dwk(NL, std::vector<std::vector<std::complex<double>>>(NL, std::vector<std::complex<double>>(NL, 0)));
+  Grid dwk(static_cast<size_t>(NL) * NL * NL, std::complex<double>(0, 0));
+
+  // Build the shell point list once (single NL^3 sweep, no RNG draws),
+  // instead of re-scanning all NL^3 points on every one of the three
+  // passes below. Iteration order matches the original triple loop
+  // exactly (i outer, k inner), so the sequence of dist(engine) draws for
+  // a given seed is unchanged -- this only removes redundant innsigma()
+  // sweeps, never reorders random draws.
+  std::vector<std::array<int, 3>> shellPoints;
+#pragma omp parallel
+  {
+    std::vector<std::array<int, 3>> local;
+#pragma omp for collapse(2) schedule(static) nowait
+    for (int i = 0; i < NL; i++)
+      for (int j = 0; j < NL; j++)
+        for (int k = 0; k < NL; k++)
+          if (innsigma(i, j, k, wavenumber))
+            local.push_back({i, j, k});
+#pragma omp critical
+    shellPoints.insert(shellPoints.end(), local.begin(), local.end());
+  }
+  // Threads may finish their (i,j) chunks in any order, so re-sort into the
+  // canonical row-major order to guarantee the RNG draw sequence below is
+  // bit-for-bit identical to the fully serial original.
+  std::sort(shellPoints.begin(), shellPoints.end());
 
   int count = 0;
   std::mt19937 engine(std::hash<int>{}(seed));
 
-  LOOP
+  // Pass 1: draw independent degrees of freedom (real points and
+  // independent complex points), in exactly the original i,j,k order.
+  // Kept single-threaded: this consumes the seeded RNG stream, so its
+  // draw order must not change.
+  for (auto &p : shellPoints)
   {
-    if (innsigma(i, j, k, wavenumber))
+    int i = p[0], j = p[1], k = p[2];
+    if (realpoint(i, j, k))
     {
-      if (realpoint(i, j, k))
-      {
-        dwk[i][j][k] = dist(engine);
-        count++;
-      }
-      else if (complexpoint(i, j, k))
-      {
-        dwk[i][j][k] = (dist(engine) + II * dist(engine)) / sqrt(2);
-        count++;
-      }
+      dwk[IDX(i, j, k)] = dist(engine);
+      count++;
+    }
+    else if (complexpoint(i, j, k))
+    {
+      dwk[IDX(i, j, k)] = (dist(engine) + II * dist(engine)) / sqrt(2);
+      count++;
     }
   }
 
-  // reflection
-  int ip, jp, kp; // reflected index
-  LOOP
+  // Pass 2: reflection (no RNG draws -- safe to parallelise, each (i,j,k)
+  // is written exactly once and only reads already-finalised source
+  // points from pass 1).
+  int ip, jp, kp;
+#pragma omp parallel for private(ip, jp, kp) schedule(dynamic, 64)
+  for (size_t idx = 0; idx < shellPoints.size(); idx++)
   {
-    if (innsigma(i, j, k, wavenumber))
+    int i = shellPoints[idx][0], j = shellPoints[idx][1], k = shellPoints[idx][2];
+    if (!(realpoint(i, j, k) || complexpoint(i, j, k)))
     {
-      if (!(realpoint(i, j, k) || complexpoint(i, j, k)))
-      {
-        if (i == 0)
-        {
-          ip = 0;
-        }
-        else
-        {
-          ip = NL - i;
-        }
-
-        if (j == 0)
-        {
-          jp = 0;
-        }
-        else
-        {
-          jp = NL - j;
-        }
-
-        if (k == 0)
-        {
-          kp = 0;
-        }
-        else
-        {
-          kp = NL - k;
-        }
-
-        dwk[i][j][k] = conj(dwk[ip][jp][kp]);
-        count++;
-      }
+      ip = (i == 0) ? 0 : NL - i;
+      jp = (j == 0) ? 0 : NL - j;
+      kp = (k == 0) ? 0 : NL - k;
+      dwk[IDX(i, j, k)] = conj(dwk[IDX(ip, jp, kp)]);
+#pragma omp atomic
+      count++;
     }
   }
 
   if (count != 0)
   {
-    LOOP{
-      if (innsigma(i,j,k,wavenumber)) {
-        dwk[i][j][k] /= sqrt(count);
-      }
+    double norm = sqrt(static_cast<double>(count));
+#pragma omp parallel for schedule(static)
+    for (size_t idx = 0; idx < shellPoints.size(); idx++)
+    {
+      int i = shellPoints[idx][0], j = shellPoints[idx][1], k = shellPoints[idx][2];
+      dwk[IDX(i, j, k)] /= norm;
     }
   }
 
@@ -416,7 +544,7 @@ bool innsigma(int nx, int ny, int nz, double wavenumber)
 
   double ntnorm = sqrt(nxt * nxt + nyt * nyt + nzt * nzt);
 
-  return (wavenumber-dn/2. <= ntnorm && ntnorm < wavenumber+dn/2.);
+  return (wavenumber - dn / 2. <= ntnorm && ntnorm < wavenumber + dn / 2.);
 }
 
 bool realpoint(int nx, int ny, int nz)
@@ -437,4 +565,3 @@ bool complexpoint(int nx, int ny, int nz)
          (nxt == 0 && 1 <= nyt && nyt != NL / 1 && nzt == 0) ||
          (nxt == NL / 2 && 1 <= nyt && nyt != NL / 2 && nzt == 0) || (1 <= nxt && nxt != NL / 2 && nyt == 0 && nzt == NL / 2) || (nxt == 0 && nyt == NL / 2 && 1 <= nzt && nzt != NL / 2);
 }
-
