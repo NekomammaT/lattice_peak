@@ -1,4 +1,4 @@
-for ((i=1;i<10;i++))
+for ((i=1;i<5;i++))
 do
-    ./Gaussian_LN_peak $i
+    OMP_NUM_THREADS=4 ./Gaussian_LN_peak $i
 done

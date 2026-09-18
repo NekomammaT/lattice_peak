@@ -94,4 +94,55 @@ private:
   fftw_plan plan_;
 };
 
+// --- Legacy nested-vector API (kept for backward compatibility) -----------
+// Several sibling programs in this directory (Gaussian_LN_GB.cpp,
+// Gaussian_LN_monoB.cpp, Gaussian_LN.cpp, Gaussian_LN_test.cpp,
+// Gaussian_mono.cpp, Gaussian_mono_bias.cpp, Gaussian_mono_test.cpp, and the
+// pre-optimization Gaussian_LN_peak.cpp) still call this original
+// self-contained fftw() function operating on
+// std::vector<std::vector<std::vector<std::complex<double>>>>. It is kept
+// exactly as it originally behaved (its own fftw_malloc/fftw_free per call,
+// FFTW_ESTIMATE, out-of-place) so those files keep compiling and behaving
+// identically without modification. New/optimized programs should use the
+// Grid + FFTW3DPlan API above instead.
+inline std::vector<std::vector<std::vector<std::complex<double>>>> fftw(
+    const std::vector<std::vector<std::vector<std::complex<double>>>> &bk)
+{
+  const int NL = static_cast<int>(bk.size());
+  const size_t n = static_cast<size_t>(NL) * NL * NL;
+
+  fftw_complex *in = static_cast<fftw_complex *>(fftw_malloc(sizeof(fftw_complex) * n));
+  fftw_complex *out = static_cast<fftw_complex *>(fftw_malloc(sizeof(fftw_complex) * n));
+
+  for (int i = 0; i < NL; i++)
+    for (int j = 0; j < NL; j++)
+      for (int k = 0; k < NL; k++)
+      {
+        size_t idx = (static_cast<size_t>(i) * NL + j) * NL + k;
+        in[idx][0] = bk[i][j][k].real();
+        in[idx][1] = bk[i][j][k].imag();
+      }
+
+  fftw_plan plan = fftw_plan_dft_3d(NL, NL, NL, in, out, FFTW_FORWARD, FFTW_ESTIMATE);
+  fftw_execute(plan);
+  fftw_destroy_plan(plan);
+
+  std::vector<std::vector<std::vector<std::complex<double>>>> bx(
+      NL, std::vector<std::vector<std::complex<double>>>(
+              NL, std::vector<std::complex<double>>(NL)));
+
+  for (int i = 0; i < NL; i++)
+    for (int j = 0; j < NL; j++)
+      for (int k = 0; k < NL; k++)
+      {
+        size_t idx = (static_cast<size_t>(i) * NL + j) * NL + k;
+        bx[i][j][k] = std::complex<double>(out[idx][0], out[idx][1]);
+      }
+
+  fftw_free(in);
+  fftw_free(out);
+
+  return bx;
+}
+
 #endif
