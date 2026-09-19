@@ -11,6 +11,39 @@
 
 #include <fftw3.h>
 
+// ============================================================================
+// Performance notes (what changed vs. the original Gaussian_LN_GB.cpp)
+// ----------------------------------------------------------------------
+// This program is already flat-array / bucketed-shell / cached-plan (it was
+// evidently optimized before), and it is run job-parallel like Gaussian_mono
+// -- no OpenMP, no fftw3_threads, purely single-threaded. The one remaining
+// bottleneck is the same one fixed in Gaussian_mono.cpp: the Cmax-over-radius
+// loop built a *full* NL^3 field rzpk and ran a *full* 3D FFT to get rzpx,
+// only to read exactly ONE element of it (rzpx[peak_index]), for every one
+// of ~O(NL) radii -- O(NL^3 log NL) of FFT work (plus a full NL^3 temporary
+// array) per radius just to extract a single scalar.
+//
+// Since only one output point is ever needed, it is now computed directly
+// from the definition of the DFT that FFTW's FFTW_FORWARD implements:
+//     rzpx[imax,jmax,kmax] = sum_{i,j,k} rzpk[i,j,k] *
+//                              exp(-2*pi*i*(i*imax+j*jmax+k*kmax)/NL)
+// which separates into per-axis phase factors (precomputed once from
+// imax/jmax/kmax, outside the radius loop) and is evaluated in a single
+// fused O(NL^3) pass with no FFT call and no per-radius temporary array --
+// i.e. the same asymptotic cost as just *building* rzpk used to be, instead
+// of also paying for a full transform of it.
+//
+// IMPORTANT CAVEAT: this one change is NOT guaranteed bit-for-bit identical
+// to the original -- a direct summation and an FFT compute the
+// mathematically same value but add up the same terms in a different order,
+// so the result can differ in the last few bits of precision. mu2, k3 and
+// lnw do not depend on this loop and remain bit-identical to the original;
+// only Cmax (and, in the rare case of a near-tie between two candidate
+// radii, rsmax) can move by a numerically negligible amount. This was
+// verified empirically against the original -- see the accompanying test
+// results.
+// ============================================================================
+
 constexpr int NL = 256;
 constexpr int nsigma = 16;
 constexpr double As = 3.5e-3;
@@ -82,8 +115,7 @@ inline double WRTH(double z)
   return z == 0.0 ? 1.0 : 3.0 * (std::sin(z) - z * std::cos(z)) / (z * z * z);
 }
 
-// Reuses both buffers and the FFTW plan.  The original code recreated all three
-// for every transform, which is particularly expensive for the radius scan.
+// Reuses both buffers and the FFTW plan. (Unchanged from before.)
 class Fft3D {
  public:
   Fft3D()
@@ -242,17 +274,34 @@ int main(int argc, char* argv[])
   Grid().swap(Dgk);
   Grid().swap(Dgx);
 
+  // ----------- Cmax over radius: direct single-point DFT evaluation -----
+  // (see header comment -- replaces "build full field + FFT + read one
+  // point" with a fused O(NL^3) sum for just that one point, no FFT call
+  // and no per-radius temporary array).
+  std::vector<std::complex<double>> phaseI(NL), phaseJ(NL), phaseK(NL);
+  for (int i = 0; i < NL; ++i) phaseI[i] = std::exp(std::complex<double>(0, -2.0 * M_PI * i * imax / NL));
+  for (int j = 0; j < NL; ++j) phaseJ[j] = std::exp(std::complex<double>(0, -2.0 * M_PI * j * jmax / NL));
+  for (int k = 0; k < NL; ++k) phaseK[k] = std::exp(std::complex<double>(0, -2.0 * M_PI * k * kmax / NL));
+
   double Cmax = 0.0;
   int rsmax = 0;
-  Grid rzpk(N3);
+  const double sqrtAs = std::sqrt(As);
   const int rs_limit = static_cast<int>(10.0 / (k_unit * nsigma));
   for (int rs = 1; rs <= rs_limit; ++rs) {
-    for (std::size_t p = 0; p < N3; ++p) {
-      const double kr = k_unit * modes.norm[p] * rs;
-      rzpk[p] = gkbias[p] * (-kr * kr / 3.0 * WRTH(kr) * std::sqrt(As));
+    std::complex<double> acc(0.0, 0.0);
+    for (int i = 0; i < NL; ++i) {
+      const std::complex<double> pi = phaseI[i];
+      for (int j = 0; j < NL; ++j) {
+        const std::complex<double> pij = pi * phaseJ[j];
+        for (int k = 0; k < NL; ++k) {
+          const std::size_t p = index_of(i, j, k);
+          const double kr = k_unit * modes.norm[p] * rs;
+          const std::complex<double> rzpk_val = gkbias[p] * (-kr * kr / 3.0 * WRTH(kr) * sqrtAs);
+          acc += rzpk_val * pij * phaseK[k];
+        }
+      }
     }
-    const Grid rzpx = fft.transform(rzpk);
-    const double compaction = 2.0 / 3.0 * (1.0 - std::pow(1.0 + rzpx[peak_index].real(), 2));
+    const double compaction = 2.0 / 3.0 * (1.0 - std::pow(1.0 + acc.real(), 2));
     if (compaction > Cmax) {
       Cmax = compaction;
       rsmax = rs;
