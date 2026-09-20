@@ -117,7 +117,7 @@ double WRTH(double z)
 // parameters
 const int NL = 512; //256; // Box size NL
 const int nsigma = 32; //16;
-const double As = 1e-2; //3.625e-3;
+const double As = 5e-3; //1e-2; //3.625e-3;
 const double dn = 1; // Thickness of nsigma sphere shell
 const std::string mapfileprefix = std::string("data/mono_map_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_");
 const std::string laplacianfileprefix = std::string("data/mono_laplacian_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string("_");

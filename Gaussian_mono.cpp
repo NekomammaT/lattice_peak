@@ -66,8 +66,8 @@
 constexpr int NL = 256; // Box size NL
 constexpr int nsigma = 16;
 constexpr double dn = 1; // Thickness of nsigma sphere shell
-constexpr double bias = 5; //9; //8; //10;
-constexpr double As = 1e-2; //3.625e-3; //5e-3;
+constexpr double bias = 8; //9; //10;
+constexpr double As = 5e-3; //1e-2; //3.625e-3;
 constexpr std::size_t N3 = static_cast<std::size_t>(NL) * NL * NL;
 const std::string mukfilename = std::string("data/mono_muk_") + std::to_string(NL) + std::string("_") + std::to_string(nsigma) + std::string(".csv");
 
