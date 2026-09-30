@@ -13,8 +13,8 @@ MODEL = Gaussian_mono_peak
 # installs (g++-15 down to g++-11), and only falls back to whatever `g++`
 # resolves to (Apple Clang, most likely) if none of those exist.
 GNU_GXX := $(firstword $(wildcard \
-	/opt/homebrew/bin/g++-15 /opt/homebrew/bin/g++-14 /opt/homebrew/bin/g++-13 /opt/homebrew/bin/g++-12 /opt/homebrew/bin/g++-11 \
-	/usr/local/bin/g++-15 /usr/local/bin/g++-14 /usr/local/bin/g++-13 /usr/local/bin/g++-12 /usr/local/bin/g++-11))
+	/opt/homebrew/bin/g++-16 /opt/homebrew/bin/g++-15 /opt/homebrew/bin/g++-14 /opt/homebrew/bin/g++-13 /opt/homebrew/bin/g++-12 /opt/homebrew/bin/g++-11 \
+	/usr/local/bin/g++-16 /usr/local/bin/g++-15 /usr/local/bin/g++-14 /usr/local/bin/g++-13 /usr/local/bin/g++-12 /usr/local/bin/g++-11))
 
 ifdef GNU_GXX
 CXX := $(GNU_GXX)
