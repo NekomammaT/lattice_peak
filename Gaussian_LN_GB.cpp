@@ -46,12 +46,12 @@
 
 constexpr int NL = 256;
 constexpr int nsigma = 16;
-constexpr double As = 3.5e-3;
+constexpr double As = 5e-3;
 constexpr int nbias = 16;
 constexpr double dlnn = 0.1;
 constexpr double biascoeff = 12.5;
-constexpr double s2 = 0.01;
-const std::string s2value = "0,01";
+constexpr double s2 = 0.1;
+const std::string s2value = "0,1";
 constexpr double dn = 1.0;
 
 constexpr std::size_t N3 = static_cast<std::size_t>(NL) * NL * NL;
