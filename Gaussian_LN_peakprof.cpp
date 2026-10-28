@@ -86,14 +86,15 @@ double WRTH(double z)
 // parameters
 const int NL = 256;
 const int nsigma = 16; //32;
-const double s2 = 0.1; //0.2; // 0.01; 
-const std::string s2value = "0,1"; // "0,2"; // "0,01";
+const double s2 = 0.01; //0.1; //0.2;
+const std::string s2value = "0,01"; //"0,1"; // "0,2"; 
 const double As = 5e-3;
 const double dn = 1; // Thickness of nsigma sphere shell
 const std::string mapfileprefix = std::string("direct_256/LN_map_") + s2value + "_" + std::to_string(NL) + "_" + std::to_string(nsigma) + "_";
 const std::string laplacianfileprefix = std::string("direct_256/LN_laplacian_") + s2value + "_" + std::to_string(NL) + "_" + std::to_string(nsigma) + "_";
 const std::string Lpeakfileprefix = std::string("direct_256/LN_Lpeak_") + s2value + "_" + std::to_string(NL) + "_" + std::to_string(nsigma) + "_";
 const std::string Cpeakfileprefix = std::string("direct_256/LN_Cpeak_") + s2value + "_" + std::to_string(NL) + "_" + std::to_string(nsigma) + "_";
+const std::string profprefix = std::string("data/LN_Cprof_") + s2value + "_" + std::to_string(NL) + "_" + std::to_string(nsigma) + "_";
 
 // lognormal power spectrum, peaked around wavenumber = nsigma
 double powerspectrum(int wavenumber)
@@ -338,7 +339,6 @@ int main(int argc, char *argv[])
   double before = (double)Nv.tv_sec + (double)Nv.tv_usec * 1.e-6;
 
   int seed = atoi(argv[1]);
-  const std::string profprefix = std::string("direct_256/LN_Cprof_") + s2value + "_" + std::to_string(NL) + "_" + std::to_string(nsigma) + "_";
   std::ofstream proffile(profprefix + std::to_string(seed) + ".csv");
 
   Grid gk = buildGk(seed);
