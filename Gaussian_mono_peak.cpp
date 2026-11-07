@@ -228,6 +228,38 @@ RGrid computeCompactionShell(const Grid &gk, const FFTW3DPlan &fftplan, int rs)
   return compaction;
 }
 
+// ---- Laplacian peak records, with the maximum over the smoothing radius of the
+// compaction C(r) centred on the peak (Cmax_c, rm_c: at the peak grid point;
+// Cmax_n, rm_n: maximum over the 3x3x3 neighbourhood of the peak at each r).
+// Updated shell by shell inside the compaction loop (no profile is stored).
+struct LPeak
+{
+  int i, j, k;
+  double mu2, k3;
+  double Cc = -1e300, Cn = -1e300;
+  int rc = 0, rn = 0;
+};
+
+void updateLpeakMax(std::vector<LPeak> &lp, const RGrid &C, int rs)
+{
+#pragma omp parallel for schedule(static)
+  for (size_t p = 0; p < lp.size(); p++)
+  {
+    LPeak &q = lp[p];
+    double c0 = C[IDX(q.i, q.j, q.k)];
+    if (c0 > q.Cc) { q.Cc = c0; q.rc = rs; }
+    double m = -1e300;
+    for (int a = -1; a <= 1; a++)
+      for (int b = -1; b <= 1; b++)
+        for (int c = -1; c <= 1; c++)
+        {
+          int ii = (q.i + a + NL) % NL, jj = (q.j + b + NL) % NL, kk = (q.k + c + NL) % NL;
+          m = std::max(m, C[IDX(ii, jj, kk)]);
+        }
+    if (m > q.Cn) { q.Cn = m; q.rn = rs; }
+  }
+}
+
 // Peak test across the radius direction (r-1, r, r+1 in the *original*
 // r-loop's indexing, here passed in as C0/C1/C2) combined with the spatial
 // saddle-point test on C0's gradient. This is exactly the body of the
@@ -338,6 +370,7 @@ int main(int argc, char *argv[])
   std::cout << "Exported to " << mapfileprefix + std::to_string(seed) + ".csv" << std::endl;
 #endif
 
+  std::vector<LPeak> lpeaks; // Laplacian peaks (written after the compaction loop)
   // ----------- laplacian + gradient + Laplacian-peak detection -----------
   // D2gx/D2D2gx (and, before this rewrite, DxD2gx/DyD2gx/DzD2gx) are scoped
   // to this block: nothing outside it -- the compaction section below --
@@ -387,14 +420,14 @@ int main(int argc, char *argv[])
 #ifdef _OPENMP
     nthreadsL = omp_get_max_threads();
 #endif
-    std::vector<std::string> lbuffers(nthreadsL);
+    std::vector<std::vector<LPeak>> lbuffers(nthreadsL);
 #pragma omp parallel
     {
       int tid = 0;
 #ifdef _OPENMP
       tid = omp_get_thread_num();
 #endif
-      std::string &buf = lbuffers[tid];
+      std::vector<LPeak> &buf = lbuffers[tid];
 #pragma omp for collapse(2) schedule(static)
       for (int i = 0; i < NL; i++)
         for (int j = 0; j < NL; j++)
@@ -414,20 +447,20 @@ int main(int argc, char *argv[])
                 dz * dzrot < 0 && dz > 0)
             {
               size_t idxp = IDX(ip, jp, kp);
-              appendNum(buf, ip); buf += ',';
-              appendNum(buf, jp); buf += ',';
-              appendNum(buf, kp); buf += ',';
-              appendNum(buf, D2gx[idxp].real()); buf += ',';
-              appendNum(buf, sqrt(D2D2gx[idxp].real() / D2gx[idxp].real())); buf += '\n';
+              LPeak q;
+              q.i = ip; q.j = jp; q.k = kp;
+              q.mu2 = D2gx[idxp].real();
+              q.k3 = sqrt(D2D2gx[idxp].real() / D2gx[idxp].real());
+              buf.push_back(q);
             }
           }
     }
-    for (auto &buf : lbuffers) Lpeakfile << buf;
+    for (auto &buf : lbuffers) lpeaks.insert(lpeaks.end(), buf.begin(), buf.end());
     // D2gx, D2D2gx (and lbuffers) go out of scope here and are freed before
     // the compaction section below starts.
   }
 
-  std::cout << "Exported to " << Lpeakfileprefix + std::to_string(seed) + ".csv" << std::endl;
+  std::cout << "Laplacian peaks found: " << lpeaks.size() << std::endl;
 
   // ----------- compaction (3-shell sliding window over radius) ----------
   double Rbound = 5. / (2 * M_PI * nsigma / NL); //10. / (2 * M_PI * nsigma / NL);
@@ -446,6 +479,7 @@ int main(int argc, char *argv[])
       C0 = RGrid();
     }
     RGrid Cnew = computeCompactionShell(gk, fftplan, rs);
+    updateLpeakMax(lpeaks, Cnew, rs);
     int shellIdx = rs - 1; // 0-based, matches original compaction[rs-1]
 
     if (haveCount < 3)
@@ -470,6 +504,20 @@ int main(int argc, char *argv[])
   }
 
   std::cout << "Exported to " << Cpeakfileprefix + std::to_string(seed) + ".csv" << std::endl;
+
+  // Laplacian-peak file: ip,jp,kp,mu2,k3, Cmax_c,rm_c, Cmax_n,rm_n
+  {
+    std::string buf;
+    for (const LPeak &q : lpeaks)
+    {
+      appendNum(buf, q.i); buf += ','; appendNum(buf, q.j); buf += ','; appendNum(buf, q.k); buf += ',';
+      appendNum(buf, q.mu2); buf += ','; appendNum(buf, q.k3); buf += ',';
+      appendNum(buf, q.Cc); buf += ','; appendNum(buf, q.rc); buf += ',';
+      appendNum(buf, q.Cn); buf += ','; appendNum(buf, q.rn); buf += '\n';
+    }
+    Lpeakfile << buf;
+    std::cout << "Exported to " << Lpeakfileprefix + std::to_string(seed) + ".csv" << std::endl;
+  }
 
   // ---------- stop timer ----------
   gettimeofday(&Nv, &Nz);
