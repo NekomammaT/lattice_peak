@@ -86,8 +86,8 @@ double WRTH(double z)
 // parameters
 const int NL = 256;
 const int nsigma = 16; //32;
-const double s2 = 0.1; //0.2; // 0.01; 
-const std::string s2value = "0,1"; // "0,2"; // "0,01";
+const double s2 = 0.01; //0.1; //0.2;
+const std::string s2value = "0,01"; //"0,1"; // "0,2";
 const double As = 5e-3;
 const double dn = 1; // Thickness of nsigma sphere shell
 const std::string mapfileprefix = std::string("data/LN_map_") + s2value + "_" + std::to_string(NL) + "_" + std::to_string(nsigma) + "_";
