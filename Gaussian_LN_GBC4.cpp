@@ -23,8 +23,12 @@
 //        at radius rp+1 with value val
 //   S  : one summary line per sample.
 // File: gbc4/ev_bc<biascoeff>.csv, appended (one write per sample); usage ./Gaussian_LN_GBC4 seed bc
-//   P,seed,lnW,x,y,z,mu2,k3,Cmax_c,rm_c,Cmax_n,rm_n
-//   E,seed,lnW,x,y,z,rp+1,val
+//   P,seed,lnW,x,y,z,mu2,k3,Cmax_c,rm_c,Cmax_n,rm_n,zeta_c,zeta_n
+//   E,seed,lnW,x,y,z,rp+1,val,zeta
+//   zeta* = spherical-shell average of zeta (= sqrt(As) g; kernel sin(kr)/(kr), as computeZetaShell of
+//   Gaussian_LN_peakprof.cpp) at the compaction-maximising radius: zeta_c at the peak site with radius
+//   rm_c, zeta_n at the site attaining Cmax_n (3x3x3 neighbourhood) with radius rm_n; E: at the C-peak
+//   site with radius rp+1.
 //   S,seed,lnW,nP,nE
 // Both site-count (site0) and k3^3-weighted estimators can be formed from these lines.
 // ============================================================================
@@ -296,7 +300,7 @@ int main(int argc, char* argv[])
     for (int a = -H; a <= H; ++a) for (int b = -H; b <= H; ++b) for (int c = -H; c <= H; ++c)
       dst[widx0(a, b, c)] = out[index_of(wrap0(a), wrap0(b), wrap0(c))][0];
   }
-  struct LPk { int x, y, z; double mu2, k3, Cc, Cn; int rc, rn; };
+  struct LPk { int x, y, z; double mu2, k3, Cc, Cn; int rc, rn; int nx, ny, nz; };
   std::vector<LPk> lpk;
   for (int i = -H; i <= H - 2; ++i) for (int j = -H; j <= H - 2; ++j) for (int k = -H; k <= H - 2; ++k) {
     const std::size_t idx = widx0(i, j, k);
@@ -310,7 +314,7 @@ int main(int argc, char* argv[])
       const std::size_t ip = widx0(i + 1, j + 1, k + 1);
       const double mu2 = winD2[ip];
       if (mu2 <= 0) continue;
-      lpk.push_back({i + 1, j + 1, k + 1, mu2, std::sqrt(winD4[ip] / mu2), -1e300, -1e300, 0, 0});
+      lpk.push_back({i + 1, j + 1, k + 1, mu2, std::sqrt(winD4[ip] / mu2), -1e300, -1e300, 0, 0, 0, 0, 0});
     }
   }
 
@@ -321,14 +325,16 @@ int main(int argc, char* argv[])
   const double sqrtAs = std::sqrt(As);
   const int rs_hi = static_cast<int>(5.0 / (k_unit * nsigma));   // = 12, same as direct sampling
   const int N2MAX = 3 * (NL / 2) * (NL / 2);
-  std::vector<double> tbl(N2MAX + 1);
+  std::vector<double> tbl(N2MAX + 1), tblz(N2MAX + 1);
   std::vector<std::vector<double>> win(rs_hi + 1, std::vector<double>(static_cast<std::size_t>(WN) * WN * WN));
+  auto winZ = win;   // zeta shell average (kernel sin(kr)/(kr) * sqrt(As)) on the window, rs = 1..12
   auto widx = [&](int a, int b, int c) { return (static_cast<std::size_t>(a + H) * WN + (b + H)) * WN + (c + H); };
   auto wrap = [&](int a) { return a < 0 ? a + NL : a; };
   for (int rs = 1; rs <= rs_hi; ++rs) {
     for (int n = 0; n <= N2MAX; ++n) {
       const double kr = k_unit * std::sqrt(static_cast<double>(n)) * rs;
       tbl[n] = -kr * kr / 3.0 * WRTH(kr) * sqrtAs;
+      tblz[n] = (kr == 0.0 ? 1.0 : std::sin(kr) / kr) * sqrtAs;
     }
     fftw_complex* in = fft.in();
     for (int i = 0; i < NL; ++i) {
@@ -338,9 +344,11 @@ int main(int argc, char* argv[])
         for (int k = 0; k < NL; ++k) {
           const int z = shiftedindex(k);
           const std::size_t p = index_of(i, j, k);
-          const double f = tbl[x * x + y * y + z * z];
-          in[p][0] = gkbias[p].real() * f;
-          in[p][1] = gkbias[p].imag() * f;
+          const double f = tbl[x * x + y * y + z * z], fz = tblz[x * x + y * y + z * z];
+          // pack C-kernel field A and zeta-kernel field B as A + iB: both transforms are real
+          // (Hermitian inputs), so Re = FFT(A) (compaction input), Im = FFT(B) (zeta shell average)
+          in[p][0] = gkbias[p].real() * f - gkbias[p].imag() * fz;
+          in[p][1] = gkbias[p].imag() * f + gkbias[p].real() * fz;
         }
       }
     }
@@ -349,6 +357,7 @@ int main(int argc, char* argv[])
     for (int a = -H; a <= H; ++a) for (int b = -H; b <= H; ++b) for (int c = -H; c <= H; ++c) {
       const double v = out[index_of(wrap(a), wrap(b), wrap(c))][0];
       win[rs][widx(a, b, c)] = 2.0 / 3.0 * (1.0 - (1.0 + v) * (1.0 + v));
+      winZ[rs][widx(a, b, c)] = out[index_of(wrap(a), wrap(b), wrap(c))][1];
     }
   }
 
@@ -362,12 +371,14 @@ int main(int argc, char* argv[])
       double m = -1e300;
       for (int a = -1; a <= 1; ++a) for (int b = -1; b <= 1; ++b) for (int c = -1; c <= 1; ++c)
         m = std::max(m, C[widx(q.x + a, q.y + b, q.z + c)]);
-      if (m > q.Cn) { q.Cn = m; q.rn = rs; }
+      for (int a = -1; a <= 1; ++a) for (int b = -1; b <= 1; ++b) for (int c = -1; c <= 1; ++c)
+        if (C[widx(q.x + a, q.y + b, q.z + c)] == m && m > q.Cn) { q.Cn = m; q.rn = rs; q.nx = q.x + a; q.ny = q.y + b; q.nz = q.z + c; }
     }
     buf += "P," + std::to_string(seed) + ',' + std::to_string(lnw) + ',' + std::to_string(q.x) + ',' +
            std::to_string(q.y) + ',' + std::to_string(q.z) + ',' + std::to_string(q.mu2) + ',' +
            std::to_string(q.k3) + ',' + std::to_string(q.Cc) + ',' + std::to_string(q.rc) + ',' +
-           std::to_string(q.Cn) + ',' + std::to_string(q.rn) + '\n';
+           std::to_string(q.Cn) + ',' + std::to_string(q.rn) + ',' +
+           std::to_string(winZ[q.rc][widx(q.x, q.y, q.z)]) + ',' + std::to_string(winZ[q.rn][widx(q.nx, q.ny, q.nz)]) + '\n';
   }
   // events: one line per C-peak found at a window site; one summary line per sample
   int nev = 0;
@@ -388,7 +399,8 @@ int main(int argc, char* argv[])
         const double val = C1[widx(i + 1, j + 1, k + 1)];
         buf += "E," + std::to_string(seed) + ',' + std::to_string(lnw) + ',' + std::to_string(i + 1) + ',' +
                std::to_string(j + 1) + ',' + std::to_string(k + 1) + ',' + std::to_string(rp + 1) + ',' +
-               std::to_string(val) + '\n';
+               std::to_string(val) + ',' +
+               std::to_string(winZ[rp + 1][widx(i + 1, j + 1, k + 1)]) + '\n';
         ++nev;
       }
     }
